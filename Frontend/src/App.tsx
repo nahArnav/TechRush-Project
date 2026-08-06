@@ -43,6 +43,20 @@ function AppInner() {
   const [mapOpen, setMapOpen] = useState(false)
   const [offline, setOffline] = useState(false)
 
+  // Restore active user session from localStorage if available
+  useEffect(() => {
+    const savedToken = localStorage.getItem('auth_token')
+    const savedEmail = localStorage.getItem('user_email')
+    const savedRole = localStorage.getItem('user_role') as Role | null
+    if (savedToken && savedEmail) {
+      const userRole = savedRole || 'student'
+      setAuthRole(userRole)
+      setRole(userRole)
+      setUserId(savedEmail)
+      setSignedIn(true)
+    }
+  }, [])
+
   // Offline support (Feature 27): dim the UI and prompt to save as a draft.
   // Depend only on `offline` — `push` is stable but keeping it out of deps makes
   // it impossible for this effect to re-fire in a loop when it pushes a toast.
@@ -138,6 +152,9 @@ function AppInner() {
           onToggleOffline={() => setOffline((o) => !o)}
           onSupport={() => setSupportOpen((s) => !s)}
           onSignOut={() => {
+            localStorage.removeItem('auth_token')
+            localStorage.removeItem('user_email')
+            localStorage.removeItem('user_role')
             setSignedIn(false)
             setLoginRole(null)
             setUserId('')

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Bell, LifeBuoy, LogOut, UserCheck, WifiOff } from 'lucide-react'
+import { Bell, LifeBuoy, LogOut, UserCheck } from 'lucide-react'
 import { GlassPanel, NeoIconButton, NeoPill, SPRING, ThemeToggle, Tooltip } from '../neo'
 import { ROLE_LABELS, type Role } from '../types'
 
@@ -122,14 +122,6 @@ export default function ProfileNav({
 
         <Tooltip label="Support & help">
           <NeoIconButton icon={<LifeBuoy size={16} />} onClick={onSupport} aria-label="Support and help" />
-        </Tooltip>
-        <Tooltip label={offline ? 'Go online' : 'Simulate offline'}>
-          <NeoIconButton
-            icon={<WifiOff size={16} />}
-            onClick={onToggleOffline}
-            aria-label="Toggle offline mode"
-            className={offline ? 'shadow-carve' : ''}
-          />
         </Tooltip>
         <Tooltip label="Sign out">
           <NeoIconButton icon={<LogOut size={16} />} onClick={onSignOut} aria-label="Sign out" />

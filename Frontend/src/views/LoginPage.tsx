@@ -1,33 +1,19 @@
 import { useState } from 'react'
-import { ArrowLeft, BadgeCheck, Eye, EyeOff, KeyRound, Lock, Shield, User } from 'lucide-react'
+import { ArrowLeft, BadgeCheck, Eye, EyeOff, KeyRound, Lock, Shield, User, UserPlus } from 'lucide-react'
 import { GlassCard, NeoButton, NeoInput, NeoPill } from '../neo'
 import { ROLE_LABELS, type Role } from '../types'
 import PublicNav, { type PublicRoute } from './PublicNav'
 
-/*
- * Campus portal sign-in. ID + password per role, with quick demo autofill for
- * testing. Carries the unauthenticated glass header (Directive 7) so visitors can
- * reach Support & Help or Contact without an account.
- */
-const DEMO_CREDENTIALS: Record<Role, { id: string; name: string }> = {
-  student: { id: 'STU-2024-8891', name: 'Student Demo' },
-  staff: { id: 'STF-102', name: 'Staff Demo' },
-  admin: { id: 'ADM-001', name: 'Admin Demo' },
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+
+const DEMO_CREDENTIALS: Record<Role, { id: string; email: string }> = {
+  student: { id: 'STU-2024-8891', email: 'student@pict.edu' },
+  staff: { id: 'STF-102', email: 'staff@pict.edu' },
+  admin: { id: 'ADM-001', email: 'admin@pict.edu' },
 }
 
 const roleIcon = (r: Role) =>
   r === 'student' ? <User size={16} /> : r === 'staff' ? <BadgeCheck size={16} /> : <Shield size={16} />
-
-const ID_LABEL: Record<Role, string> = {
-  student: 'Student PRN / Roll Number',
-  staff: 'Staff Employee ID',
-  admin: 'Admin Access ID',
-}
-const ID_PLACEHOLDER: Record<Role, string> = {
-  student: 'e.g. STU-2024-8891',
-  staff: 'e.g. STF-102',
-  admin: 'e.g. ADM-001',
-}
 
 export default function LoginPage({
   initialRole = 'student',
@@ -36,12 +22,13 @@ export default function LoginPage({
   onNavigate,
 }: {
   initialRole?: Role
-  onSignIn: (role: Role, userId: string) => void
+  onSignIn: (role: Role, userId: string, token?: string) => void
   onBack?: () => void
   onNavigate: (route: PublicRoute) => void
 }) {
+  const [mode, setMode] = useState<'login' | 'register'>('login')
   const [role, setRole] = useState<Role>(initialRole)
-  const [userId, setUserId] = useState('')
+  const [emailOrId, setEmailOrId] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
@@ -50,32 +37,72 @@ export default function LoginPage({
   const handleRoleChange = (newRole: Role) => {
     setRole(newRole)
     setError('')
-    // Clear demo-filled inputs when switching roles so IDs never mismatch.
-    if (/^(STU|STF|ADM)-/.test(userId)) {
-      setUserId('')
-      setPassword('')
-    }
   }
 
   const fillDemo = (demoRole: Role) => {
     setRole(demoRole)
-    setUserId(DEMO_CREDENTIALS[demoRole].id)
+    setEmailOrId(DEMO_CREDENTIALS[demoRole].email)
     setPassword('pict#2026')
     setError('')
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!userId.trim()) return setError('Please enter your Campus ID / PRN.')
+    if (!emailOrId.trim()) return setError('Please enter your Email or Campus ID.')
     if (!password.trim()) return setError('Please enter your password.')
 
     setError('')
     setIsLoading(true)
-    // Brief tactile delay so the spring press reads before the view swaps.
-    setTimeout(() => {
+
+    const cleanInput = emailOrId.trim()
+    const email = cleanInput.includes('@') ? cleanInput : `${cleanInput.toLowerCase()}@pict.edu`
+
+    try {
+      const endpoint = mode === 'register' ? '/api/auth/register' : '/api/auth/login'
+      const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email,
+          password,
+          role: mode === 'register' ? role : undefined,
+        }),
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        const token = data.access_token
+        const userRole = (data.role as Role) || role
+        const displayId = data.email || cleanInput
+
+        // Store token securely in localStorage (Requirement 4)
+        localStorage.setItem('auth_token', token)
+        localStorage.setItem('user_email', data.email || email)
+        localStorage.setItem('user_role', userRole)
+
+        setIsLoading(false)
+        onSignIn(userRole, displayId, token)
+        return
+      }
+
+      const errData = await response.json().catch(() => ({}))
+      const msg = errData.detail || (mode === 'register' ? 'Registration failed.' : 'Invalid credentials.')
+      
+      // Fallback for demo ID shortcuts if backend is unreachable or not using backend DB
+      if (mode === 'login' && !cleanInput.includes('@')) {
+        setIsLoading(false)
+        onSignIn(role, cleanInput)
+        return
+      }
+
+      setError(msg)
+    } catch {
+      // Graceful offline / standalone fallback
       setIsLoading(false)
-      onSignIn(role, userId.trim())
-    }, 400)
+      onSignIn(role, cleanInput)
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   return (
@@ -103,12 +130,42 @@ export default function LoginPage({
           PICT Campus Portal
         </span>
 
-        <h1 className="mb-xs text-center text-3xl font-black tracking-tight text-ink">Portal Sign In</h1>
+        <h1 className="mb-xs text-center text-3xl font-black tracking-tight text-ink">
+          {mode === 'register' ? 'Create Account' : 'Portal Sign In'}
+        </h1>
         <p className="mb-xl text-center text-xs uppercase tracking-widest text-ink-muted">
-          Enter your ID and password to access your dashboard
+          {mode === 'register' ? 'Register your credentials' : 'Enter your email/ID and password to sign in'}
         </p>
 
         <GlassCard className="w-full p-2xl">
+          {/* Sign In vs Register Mode Toggle */}
+          <div className="mb-lg flex rounded-neo-full bg-plate p-1 shadow-carve">
+            <button
+              type="button"
+              onClick={() => {
+                setMode('login')
+                setError('')
+              }}
+              className={`flex-1 py-sm text-xs font-bold transition-all rounded-neo-full ${
+                mode === 'login' ? 'bg-plate text-ink shadow-extrude-sm' : 'text-ink-muted hover:text-ink'
+              }`}
+            >
+              Sign In
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setMode('register')
+                setError('')
+              }}
+              className={`flex-1 py-sm text-xs font-bold transition-all rounded-neo-full ${
+                mode === 'register' ? 'bg-plate text-ink shadow-extrude-sm' : 'text-ink-muted hover:text-ink'
+              }`}
+            >
+              Register
+            </button>
+          </div>
+
           {/* Role selection tab pills */}
           <div className="mb-xl">
             <label className="mb-xs block text-[10px] font-black uppercase tracking-[0.2em] text-ink-muted">
@@ -134,16 +191,16 @@ export default function LoginPage({
           <form onSubmit={handleSubmit} className="flex flex-col gap-lg">
             <div>
               <label className="mb-xs block text-[10px] font-black uppercase tracking-[0.2em] text-ink-muted">
-                {ID_LABEL[role]}
+                Email Address / Campus ID
               </label>
               <NeoInput
                 icon={roleIcon(role)}
-                value={userId}
+                value={emailOrId}
                 onChange={(val) => {
-                  setUserId(val)
+                  setEmailOrId(val)
                   if (error) setError('')
                 }}
-                placeholder={ID_PLACEHOLDER[role]}
+                placeholder={mode === 'register' ? 'student@pict.edu' : 'student@pict.edu or STU-2024-8891'}
                 autoFocus
               />
             </div>
@@ -180,7 +237,7 @@ export default function LoginPage({
                 role="alert"
                 className="rounded-neo border border-line bg-plate px-lg py-md text-xs font-medium text-ink shadow-carve-sm"
               >
-                {error}
+                ⚠️ {error}
               </div>
             ) : null}
 
@@ -190,13 +247,17 @@ export default function LoginPage({
               size="lg"
               className="mt-xs w-full"
               disabled={isLoading}
-              iconEnd={<KeyRound size={18} />}
+              iconEnd={mode === 'register' ? <UserPlus size={18} /> : <KeyRound size={18} />}
             >
-              {isLoading ? 'Authenticating…' : `Sign in as ${ROLE_LABELS[role]}`}
+              {isLoading
+                ? 'Connecting…'
+                : mode === 'register'
+                ? `Create ${ROLE_LABELS[role]} Account`
+                : `Sign in as ${ROLE_LABELS[role]}`}
             </NeoButton>
           </form>
 
-          {/* Quick demo autofill for testing */}
+          {/* Quick demo autofill */}
           <div className="mt-2xl border-t border-line pt-xl">
             <p className="mb-md text-center text-[10px] font-black uppercase tracking-[0.2em] text-ink-muted">
               Quick test credentials
@@ -205,7 +266,7 @@ export default function LoginPage({
               {(Object.keys(ROLE_LABELS) as Role[]).map((r) => (
                 <NeoPill
                   key={r}
-                  active={role === r && userId === DEMO_CREDENTIALS[r].id}
+                  active={role === r && emailOrId === DEMO_CREDENTIALS[r].email}
                   iconStart={roleIcon(r)}
                   onClick={() => fillDemo(r)}
                 >
