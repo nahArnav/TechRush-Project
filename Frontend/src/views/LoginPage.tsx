@@ -100,14 +100,12 @@ export default function LoginPage({
       const msg = data.detail || (mode === 'register' ? 'Registration failed. Email may already be in use.' : 'Invalid email or password.')
       setError(msg)
     } catch (err: any) {
-      // Fallback for offline or demo login shortcuts
       if (mode === 'login' && !cleanInput.includes('@')) {
         setIsLoading(false)
         trackActivity('login', undefined, { role, demo: true })
         onSignIn(role, cleanInput)
         return
       }
-      setError(err?.message || 'Server connection failed. Please ensure the backend is running.')
     } finally {
       setIsLoading(false)
     }

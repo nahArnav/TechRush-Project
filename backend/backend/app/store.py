@@ -545,20 +545,41 @@ def decode_access_token(token: str) -> dict | None:
 
 
 # ---------------------------------------------------------------------------
-# User CRUD
+# ---------------------------------------------------------------------------
+# User CRUD (SQLite & Mongo fallback)
 # ---------------------------------------------------------------------------
 async def create_user(email: str, password_hash: str, role: str) -> UserOut:
     now = utc_now()
     clean_email = email.strip().lower()
-    result = await database.db.users.insert_one({
-        "email": clean_email,
-        "password_hash": password_hash,
-        "role": role,
-        "created_at": now,
-        "updated_at": now,
-    })
+    user_id = str(ObjectId())
+
+    # 1. Store in SQLite users.db
+    with database.get_sqlite_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO users (id, email, hashed_password, role, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (user_id, clean_email, password_hash, role, now, now),
+        )
+        conn.commit()
+
+    # 2. Store in Mongo if connected
+    if database.db is not None:
+        try:
+            await database.db.users.insert_one({
+                "_id": ObjectId(user_id),
+                "email": clean_email,
+                "password_hash": password_hash,
+                "role": role,
+                "created_at": now,
+                "updated_at": now,
+            })
+        except Exception:
+            pass
+
     return UserOut(
-        id=str(result.inserted_id),
+        id=user_id,
         email=clean_email,
         role=role,
         created_at=now,
@@ -568,34 +589,75 @@ async def create_user(email: str, password_hash: str, role: str) -> UserOut:
 
 async def get_user_by_email(email: str) -> dict | None:
     clean_email = email.strip().lower()
-    doc = await database.db.users.find_one({"email": clean_email})
-    if doc is None:
-        return None
-    return {
-        "id": str(doc["_id"]),
-        "email": doc["email"],
-        "password_hash": doc["password_hash"],
-        "role": doc["role"],
-        "created_at": doc["created_at"],
-        "updated_at": doc["updated_at"],
-    }
+
+    # 1. Query SQLite users table
+    with database.get_sqlite_conn() as conn:
+        row = conn.execute(
+            "SELECT id, email, hashed_password, role, created_at, updated_at FROM users WHERE email = ?",
+            (clean_email,),
+        ).fetchone()
+        if row:
+            return {
+                "id": row["id"],
+                "email": row["email"],
+                "password_hash": row["hashed_password"],
+                "role": row["role"],
+                "created_at": row["created_at"],
+                "updated_at": row["updated_at"],
+            }
+
+    # 2. Query Mongo if connected
+    if database.db is not None:
+        try:
+            doc = await database.db.users.find_one({"email": clean_email})
+            if doc:
+                return {
+                    "id": str(doc["_id"]),
+                    "email": doc["email"],
+                    "password_hash": doc["password_hash"],
+                    "role": doc["role"],
+                    "created_at": doc["created_at"],
+                    "updated_at": doc["updated_at"],
+                }
+        except Exception:
+            pass
+
+    return None
 
 
 async def get_user_by_id(user_id: str) -> UserOut | None:
-    try:
-        oid = ObjectId(user_id)
-    except Exception:
-        return None
-    doc = await database.db.users.find_one({"_id": oid})
-    if doc is None:
-        return None
-    return UserOut(
-        id=str(doc["_id"]),
-        email=doc["email"],
-        role=doc["role"],
-        created_at=doc["created_at"],
-        updated_at=doc["updated_at"],
-    )
+    # 1. Query SQLite users table
+    with database.get_sqlite_conn() as conn:
+        row = conn.execute(
+            "SELECT id, email, role, created_at, updated_at FROM users WHERE id = ?",
+            (user_id,),
+        ).fetchone()
+        if row:
+            return UserOut(
+                id=row["id"],
+                email=row["email"],
+                role=row["role"],
+                created_at=row["created_at"],
+                updated_at=row["updated_at"],
+            )
+
+    # 2. Query Mongo if connected
+    if database.db is not None:
+        try:
+            oid = ObjectId(user_id)
+            doc = await database.db.users.find_one({"_id": oid})
+            if doc:
+                return UserOut(
+                    id=str(doc["_id"]),
+                    email=doc["email"],
+                    role=doc["role"],
+                    created_at=doc["created_at"],
+                    updated_at=doc["updated_at"],
+                )
+        except Exception:
+            pass
+
+    return None
 
 
 # ---------------------------------------------------------------------------
