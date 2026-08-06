@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Bell, LifeBuoy, LogOut, User, UserCheck } from 'lucide-react'
 import { GlassPanel, NeoIconButton, NeoPill, SPRING, ThemeToggle, Tooltip } from '../neo'

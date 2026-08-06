@@ -80,7 +80,13 @@ export const CLAIM_STAGES: { id: ClaimStage; label: string }[] = [
   { id: 'approved', label: 'Approved' },
 ]
 
-export type Claim = { itemId: string; stage: ClaimStage }
+export type Claim = {
+  id: string
+  itemId: string
+  stage: ClaimStage
+  claimantRole: Role
+  createdAt: string
+}
 
 // Sensitive categories that must be handed to security (Feature 21).
 export const SENSITIVE_CATEGORIES = ['Government ID', 'Medicine', 'ID Card']

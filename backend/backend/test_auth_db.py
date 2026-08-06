@@ -7,8 +7,6 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.database import SQLITE_DB_PATH, get_sqlite_conn, init_sqlite_db
 
-client = TestClient(app)
-
 def test_auth_and_db():
     print("\n--- Starting Auth & SQLite Database Test ---")
     
@@ -28,45 +26,46 @@ def test_auth_and_db():
         "password": "SecurePassword#2026",
         "role": "student"
     }
-    res = client.post("/api/auth/register", json=reg_payload)
-    print(f"Register status: {res.status_code}")
-    assert res.status_code == 201, f"Expected 201, got {res.status_code}: {res.text}"
-    data = res.json()
-    assert "access_token" in data
-    assert data["email"] == test_email
-    assert data["role"] == "student"
-    print("[OK] Registration successful with JWT token issued")
+    with TestClient(app) as client:
+        res = client.post("/api/auth/register", json=reg_payload)
+        print(f"Register status: {res.status_code}")
+        assert res.status_code == 201, f"Expected 201, got {res.status_code}: {res.text}"
+        data = res.json()
+        assert "access_token" in data
+        assert data["email"] == test_email
+        assert data["role"] == "student"
+        print("[OK] Registration successful with JWT token issued")
 
-    # 3. Test Duplicate Registration Attempt (POST /api/auth/register)
-    dup_res = client.post("/api/auth/register", json=reg_payload)
-    print(f"Duplicate Register status: {dup_res.status_code}")
-    assert dup_res.status_code == 400, f"Expected 400 for duplicate email, got {dup_res.status_code}"
-    assert "already registered" in dup_res.json()["detail"].lower()
-    print("[OK] Duplicate registration correctly rejected with HTTP 400")
+        # 3. Test Duplicate Registration Attempt (POST /api/auth/register)
+        dup_res = client.post("/api/auth/register", json=reg_payload)
+        print(f"Duplicate Register status: {dup_res.status_code}")
+        assert dup_res.status_code == 400, f"Expected 400 for duplicate email, got {dup_res.status_code}"
+        assert "already registered" in dup_res.json()["detail"].lower()
+        print("[OK] Duplicate registration correctly rejected with HTTP 400")
 
-    # 4. Test Login with Correct Password (POST /api/auth/login)
-    login_payload = {
-        "email": test_email,
-        "password": "SecurePassword#2026"
-    }
-    login_res = client.post("/api/auth/login", json=login_payload)
-    print(f"Login status: {login_res.status_code}")
-    assert login_res.status_code == 200, f"Expected 200, got {login_res.status_code}: {login_res.text}"
-    login_data = login_res.json()
-    assert "access_token" in login_data
-    assert login_data["email"] == test_email
-    print("[OK] Login with valid credentials successful")
+        # 4. Test Login with Correct Password (POST /api/auth/login)
+        login_payload = {
+            "email": test_email,
+            "password": "SecurePassword#2026"
+        }
+        login_res = client.post("/api/auth/login", json=login_payload)
+        print(f"Login status: {login_res.status_code}")
+        assert login_res.status_code == 200, f"Expected 200, got {login_res.status_code}: {login_res.text}"
+        login_data = login_res.json()
+        assert "access_token" in login_data
+        assert login_data["email"] == test_email
+        print("[OK] Login with valid credentials successful")
 
-    # 5. Test Login with Incorrect Password (POST /api/auth/login)
-    bad_login_payload = {
-        "email": test_email,
-        "password": "WrongPassword123"
-    }
-    bad_res = client.post("/api/auth/login", json=bad_login_payload)
-    print(f"Bad Password Login status: {bad_res.status_code}")
-    assert bad_res.status_code == 401, f"Expected 401, got {bad_res.status_code}"
-    assert "invalid email or password" in bad_res.json()["detail"].lower()
-    print("[OK] Invalid password correctly rejected with HTTP 401 Unauthorized")
+        # 5. Test Login with Incorrect Password (POST /api/auth/login)
+        bad_login_payload = {
+            "email": test_email,
+            "password": "WrongPassword123"
+        }
+        bad_res = client.post("/api/auth/login", json=bad_login_payload)
+        print(f"Bad Password Login status: {bad_res.status_code}")
+        assert bad_res.status_code == 401, f"Expected 401, got {bad_res.status_code}"
+        assert "invalid email or password" in bad_res.json()["detail"].lower()
+        print("[OK] Invalid password correctly rejected with HTTP 401 Unauthorized")
 
     # 6. Verify SQLite Database Record
     with get_sqlite_conn() as conn:

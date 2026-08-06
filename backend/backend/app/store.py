@@ -5,7 +5,7 @@ import os
 import secrets
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import bcrypt
 import jwt
@@ -93,6 +93,15 @@ SEED_ITEMS = [
     ("LF-1056", "lost", "Other", "Cello bow in a soft case", "Departmental loan, tagged with an inventory sticker on the frog.", "Music Building, Practice Room 7", "2026-07-24", "open", 0.35),
 ]
 
+_memory_ready = False
+_memory_items: list[dict[str, Any]] = []
+_memory_claims: list[dict[str, Any]] = []
+_memory_sessions: dict[str, Role] = {}
+_memory_messages: list[dict[str, Any]] = []
+_memory_handovers: list[dict[str, Any]] = []
+_memory_cctv_requests: list[dict[str, Any]] = []
+_memory_activity_log: list[dict[str, Any]] = []
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -150,20 +159,16 @@ def _doc_to_claim(doc: dict) -> ClaimOut:
     )
 
 
-# ---------------------------------------------------------------------------
-# Database initialisation & seeding
-# ---------------------------------------------------------------------------
-async def init_db() -> None:
-    """Initialize database if needed."""
-    pass
+def _memory_item_docs() -> list[dict[str, Any]]:
+    return [doc.copy() for doc in _memory_items]
 
 
-async def _seed_items() -> None:
+def _seed_item_docs() -> list[dict[str, Any]]:
     now = utc_now()
-    item_docs = []
+    docs: list[dict[str, Any]] = []
     for item in SEED_ITEMS:
         coord_x, coord_z = infer_coordinates(item[5])
-        item_docs.append({
+        docs.append({
             "id": item[0],
             "type": item[1],
             "category": item[2],
@@ -177,6 +182,49 @@ async def _seed_items() -> None:
             "coord_z": coord_z,
             "created_at": now,
         })
+    return docs
+
+
+def _matches_text_query(doc: dict[str, Any], query: str) -> bool:
+    needle = query.lower()
+    return any(
+        needle in str(doc.get(field, "")).lower()
+        for field in ("title", "description", "location", "category")
+    )
+
+
+# ---------------------------------------------------------------------------
+# Database initialisation & seeding
+# ---------------------------------------------------------------------------
+async def init_db() -> None:
+    """Initialize MongoDB when available, otherwise seed the in-memory fallback."""
+    global _memory_ready, _memory_items, _memory_claims
+
+    if database.db is None:
+        if not _memory_ready:
+            _memory_items = _seed_item_docs()
+            _memory_claims = [{
+                "_id": ObjectId(),
+                "item_id": "LF-1043",
+                "stage": "review",
+                "claimant_role": "student",
+                "proof": "Sleeve has a small tear near the zipper.",
+                "created_at": utc_now(),
+            }]
+            _memory_ready = True
+        return
+
+    await database.db.items.create_index("id", unique=True)
+    await database.db.items.create_index([("date", -1), ("created_at", -1)])
+    await database.db.claims.create_index("item_id")
+    await database.db.sessions.create_index("token", unique=True)
+
+    if await database.db.items.count_documents({}) == 0:
+        await _seed_items()
+
+
+async def _seed_items() -> None:
+    item_docs = _seed_item_docs()
     await database.db.items.insert_many(item_docs)
 
     # One demo claim
@@ -185,7 +233,7 @@ async def _seed_items() -> None:
         "stage": "review",
         "claimant_role": "student",
         "proof": "Sleeve has a small tear near the zipper.",
-        "created_at": now,
+        "created_at": utc_now(),
     })
 
 
@@ -194,6 +242,10 @@ async def _seed_items() -> None:
 # ---------------------------------------------------------------------------
 async def issue_session(role: Role) -> str:
     token = secrets.token_urlsafe(32)
+    if database.db is None:
+        _memory_sessions[token] = role
+        return token
+
     await database.db.sessions.insert_one({
         "token": token,
         "role": role,
@@ -203,6 +255,9 @@ async def issue_session(role: Role) -> str:
 
 
 async def get_session_role(token: str) -> Optional[Role]:
+    if database.db is None:
+        return _memory_sessions.get(token)
+
     doc = await database.db.sessions.find_one({"token": token})
     return doc["role"] if doc else None
 
@@ -216,6 +271,19 @@ async def list_items(
     status: Optional[ItemStatus] = None,
     category: Optional[str] = None,
 ) -> list[ItemOut]:
+    if database.db is None:
+        docs = _memory_item_docs()
+        if query:
+            docs = [doc for doc in docs if _matches_text_query(doc, query)]
+        if item_type:
+            docs = [doc for doc in docs if doc["type"] == item_type]
+        if status:
+            docs = [doc for doc in docs if doc["status"] == status]
+        if category:
+            docs = [doc for doc in docs if doc["category"] == category]
+        docs.sort(key=lambda doc: (doc["date"], doc["created_at"]), reverse=True)
+        return [_doc_to_item(doc) for doc in docs[:500]]
+
     filter_doc: dict = {}
     if query:
         regex = {"$regex": query, "$options": "i"}
@@ -238,13 +306,21 @@ async def list_items(
 
 
 async def get_item(item_id: str) -> Optional[ItemOut]:
+    if database.db is None:
+        doc = next((item for item in _memory_items if item["id"] == item_id), None)
+        return _doc_to_item(doc) if doc else None
+
     doc = await database.db.items.find_one({"id": item_id})
     return _doc_to_item(doc) if doc else None
 
 
 async def _next_item_id() -> str:
-    cursor = database.db.items.find({"id": {"$regex": "^LF-"}}, {"id": 1})
-    docs = await cursor.to_list(length=10000)
+    if database.db is None:
+        docs = _memory_item_docs()
+    else:
+        cursor = database.db.items.find({"id": {"$regex": "^LF-"}}, {"id": 1})
+        docs = await cursor.to_list(length=10000)
+
     highest = 1000
     for doc in docs:
         try:
@@ -262,7 +338,14 @@ def _infer_status(payload: ItemCreate) -> ItemStatus:
 
 async def _infer_match_score(payload: ItemCreate) -> float:
     opposite = "found" if payload.type == "lost" else "lost"
-    count = await database.db.items.count_documents({"type": opposite, "category": payload.category})
+    if database.db is None:
+        count = sum(
+            1
+            for item in _memory_items
+            if item["type"] == opposite and item["category"] == payload.category
+        )
+    else:
+        count = await database.db.items.count_documents({"type": opposite, "category": payload.category})
     score = 0.34 + min(count, 5) * 0.11
     if payload.brand:
         score += 0.08
@@ -292,6 +375,10 @@ async def create_item(payload: ItemCreate) -> ItemOut:
         "coord_z": coord_z,
         "created_at": now,
     }
+    if database.db is None:
+        _memory_items.append(doc)
+        return _doc_to_item(doc)
+
     await database.db.items.insert_one(doc)
     return _doc_to_item(doc)
 
@@ -300,12 +387,35 @@ async def create_item(payload: ItemCreate) -> ItemOut:
 # Claim CRUD
 # ---------------------------------------------------------------------------
 async def list_claims() -> list[ClaimOut]:
+    if database.db is None:
+        docs = [doc.copy() for doc in _memory_claims]
+        docs.sort(key=lambda doc: doc["created_at"], reverse=True)
+        return [_doc_to_claim(doc) for doc in docs[:500]]
+
     cursor = database.db.claims.find().sort([("created_at", -1)])
     docs = await cursor.to_list(length=500)
     return [_doc_to_claim(doc) for doc in docs]
 
 
 async def create_claim(payload: ClaimCreate, role: Role) -> Optional[ClaimOut]:
+    if database.db is None:
+        item = next((doc for doc in _memory_items if doc["id"] == payload.item_id), None)
+        if not item:
+            return None
+
+        doc = {
+            "_id": ObjectId(),
+            "item_id": payload.item_id,
+            "stage": "submitted",
+            "claimant_role": role,
+            "proof": payload.proof,
+            "created_at": utc_now(),
+        }
+        _memory_claims.append(doc)
+        if item["status"] not in {"closed", "escalated"}:
+            item["status"] = "in_review"
+        return _doc_to_claim(doc)
+
     item = await database.db.items.find_one({"id": payload.item_id})
     if not item:
         return None
@@ -332,6 +442,17 @@ async def update_claim_stage(claim_id: str, stage: ClaimStage) -> Optional[Claim
     except Exception:
         return None
 
+    if database.db is None:
+        doc = next((claim for claim in _memory_claims if claim["_id"] == oid), None)
+        if not doc:
+            return None
+        doc["stage"] = stage
+        if stage == "approved":
+            item = next((item for item in _memory_items if item["id"] == doc["item_id"]), None)
+            if item:
+                item["status"] = "closed"
+        return _doc_to_claim(doc)
+
     doc = await database.db.claims.find_one({"_id": oid})
     if not doc:
         return None
@@ -352,6 +473,20 @@ async def list_messages(item_id: str) -> Optional[list[MessageOut]]:
     item = await get_item(item_id)
     if not item:
         return None
+    if database.db is None:
+        docs = [doc for doc in _memory_messages if doc["item_id"] == item_id]
+        docs.sort(key=lambda doc: doc["created_at"])
+        return [
+            MessageOut(
+                id=str(doc["_id"]),
+                item_id=doc["item_id"],
+                sender=doc["sender"],
+                text=doc["text"],
+                created_at=doc["created_at"],
+            )
+            for doc in docs[:500]
+        ]
+
     cursor = database.db.messages.find({"item_id": item_id}).sort([("created_at", 1)])
     docs = await cursor.to_list(length=500)
     return [
@@ -371,6 +506,23 @@ async def create_message(item_id: str, payload: MessageCreate) -> Optional[Messa
     if not item:
         return None
     now = utc_now()
+    if database.db is None:
+        doc = {
+            "_id": ObjectId(),
+            "item_id": item_id,
+            "sender": payload.sender,
+            "text": payload.text,
+            "created_at": now,
+        }
+        _memory_messages.append(doc)
+        return MessageOut(
+            id=str(doc["_id"]),
+            item_id=doc["item_id"],
+            sender=doc["sender"],
+            text=doc["text"],
+            created_at=doc["created_at"],
+        )
+
     result = await database.db.messages.insert_one({
         "item_id": item_id,
         "sender": payload.sender,
@@ -396,6 +548,25 @@ async def create_handover(payload: HandoverCreate) -> Optional[HandoverOut]:
         return None
     code = "".join(secrets.choice("ABCDEFGHJKLMNPQRSTUVWXYZ23456789") for _ in range(6))
     now = utc_now()
+    if database.db is None:
+        doc = {
+            "_id": ObjectId(),
+            "item_id": payload.item_id,
+            "date_label": payload.date_label,
+            "slot": payload.slot,
+            "code": code,
+            "created_at": now,
+        }
+        _memory_handovers.append(doc)
+        return HandoverOut(
+            id=str(doc["_id"]),
+            item_id=doc["item_id"],
+            date_label=doc["date_label"],
+            slot=doc["slot"],
+            code=doc["code"],
+            created_at=doc["created_at"],
+        )
+
     result = await database.db.handovers.insert_one({
         "item_id": payload.item_id,
         "date_label": payload.date_label,
@@ -419,6 +590,25 @@ async def create_handover(payload: HandoverCreate) -> Optional[HandoverOut]:
 # ---------------------------------------------------------------------------
 async def create_cctv_request(payload: CctvRequestCreate) -> CctvRequestOut:
     now = utc_now()
+    if database.db is None:
+        doc = {
+            "_id": ObjectId(),
+            "location": payload.location,
+            "item_title": payload.itemTitle,
+            "time_window": payload.timeWindow,
+            "status": "queued",
+            "created_at": now,
+        }
+        _memory_cctv_requests.append(doc)
+        return CctvRequestOut(
+            id=str(doc["_id"]),
+            location=doc["location"],
+            item_title=doc.get("item_title"),
+            time_window=doc.get("time_window"),
+            status=doc["status"],
+            created_at=doc["created_at"],
+        )
+
     result = await database.db.cctv_requests.insert_one({
         "location": payload.location,
         "item_title": payload.itemTitle,
@@ -484,6 +674,28 @@ async def campus_map() -> CampusMapOut:
 # Analytics
 # ---------------------------------------------------------------------------
 async def analytics_summary() -> dict[str, object]:
+    if database.db is None:
+        total_items = len(_memory_items)
+        open_items = sum(1 for item in _memory_items if item["status"] == "open")
+        secured_items = sum(1 for item in _memory_items if item["status"] == "secured")
+        active_claims = sum(1 for claim in _memory_claims if claim["stage"] != "approved")
+        escalations = sum(1 for item in _memory_items if item["status"] == "escalated")
+        category_counts: dict[str, int] = {}
+        for item in _memory_items:
+            category_counts[item["category"]] = category_counts.get(item["category"], 0) + 1
+        by_category = [
+            {"category": category, "count": count}
+            for category, count in sorted(category_counts.items(), key=lambda pair: pair[1], reverse=True)[:8]
+        ]
+        return {
+            "total_items": total_items,
+            "open_items": open_items,
+            "secured_items": secured_items,
+            "active_claims": active_claims,
+            "escalations": escalations,
+            "by_category": by_category,
+        }
+
     total_items = await database.db.items.count_documents({})
     open_items = await database.db.items.count_documents({"status": "open"})
     secured_items = await database.db.items.count_documents({"status": "secured"})
@@ -666,12 +878,25 @@ async def get_user_by_id(user_id: str) -> UserOut | None:
 async def log_activity(payload: ActivityCreate, user_id: str | None = None) -> ActivityOut:
     now = utc_now()
     doc = {
+        "_id": ObjectId(),
         "user_id": user_id,
         "action": payload.action,
         "item_id": payload.item_id,
         "metadata": payload.metadata,
         "created_at": now,
     }
+    if database.db is None:
+        _memory_activity_log.append(doc)
+        return ActivityOut(
+            id=str(doc["_id"]),
+            user_id=user_id,
+            action=payload.action,
+            item_id=payload.item_id,
+            metadata=payload.metadata,
+            created_at=now,
+        )
+
+    doc.pop("_id")
     result = await database.db.activity_log.insert_one(doc)
     return ActivityOut(
         id=str(result.inserted_id),
@@ -688,6 +913,25 @@ async def list_activity(
     action: str | None = None,
     limit: int = 50,
 ) -> list[ActivityOut]:
+    if database.db is None:
+        docs = list(_memory_activity_log)
+        if user_id:
+            docs = [doc for doc in docs if doc.get("user_id") == user_id]
+        if action:
+            docs = [doc for doc in docs if doc["action"] == action]
+        docs.sort(key=lambda doc: doc["created_at"], reverse=True)
+        return [
+            ActivityOut(
+                id=str(doc["_id"]),
+                user_id=doc.get("user_id"),
+                action=doc["action"],
+                item_id=doc.get("item_id"),
+                metadata=doc.get("metadata"),
+                created_at=doc["created_at"],
+            )
+            for doc in docs[:limit]
+        ]
+
     filter_doc: dict = {}
     if user_id:
         filter_doc["user_id"] = user_id

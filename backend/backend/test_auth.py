@@ -1,12 +1,10 @@
+import asyncio
 import time
 from fastapi.testclient import TestClient
 from app.main import app
 from app import store
 
 def test_user_registration_and_authentication():
-    # Initialize database
-    store.init_db()
-
     with TestClient(app) as client:
         # 1. Register a new user with unique email
         ts = int(time.time())
@@ -26,7 +24,7 @@ def test_user_registration_and_authentication():
         assert data["token_type"] == "bearer"
 
         # 2. Verify database record - password must be hashed with bcrypt, NOT stored in plaintext
-        user_row = store.get_user_by_email(email)
+        user_row = asyncio.run(store.get_user_by_email(email))
         assert user_row is not None
         assert user_row["password_hash"] != password
         assert user_row["password_hash"].startswith("$2b$")

@@ -14,7 +14,7 @@ function getHeaders(extra: Record<string, string> = {}): Record<string, string> 
   return headers
 }
 
-export async function registerUser(email: string, password: str, role: Role = 'student') {
+export async function registerUser(email: string, password: string, role: Role = 'student') {
   const res = await fetch(`${API_BASE_URL}/v1/auth/register`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -27,7 +27,7 @@ export async function registerUser(email: string, password: str, role: Role = 's
   return res.json()
 }
 
-export async function loginUser(email: string, password: str) {
+export async function loginUser(email: string, password: string) {
   const res = await fetch(`${API_BASE_URL}/v1/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
