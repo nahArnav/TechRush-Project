@@ -88,21 +88,20 @@ export default function LoginPage({
       }
 
       const errData = await response.json().catch(() => ({}))
-      const msg = errData.detail || (mode === 'register' ? 'Registration failed.' : 'Invalid credentials.')
-      
-      // Fallback for demo ID shortcuts if backend is unreachable or not using backend DB
+      const msg =
+        errData.detail ||
+        (mode === 'register' ? 'Registration failed. Email may already be registered.' : 'Invalid email or password.')
+
+      setError(msg)
+    } catch {
+      // Demo ID shortcut fallback (e.g. STU-2024-8891) if backend server is offline
       if (mode === 'login' && !cleanInput.includes('@')) {
         setIsLoading(false)
         trackActivity('login', undefined, { role, demo: true })
         onSignIn(role, cleanInput)
         return
       }
-
-      setError(msg)
-    } catch {
-      // Graceful offline / standalone fallback
-      setIsLoading(false)
-      onSignIn(role, cleanInput)
+      setError('Unable to connect to authentication server.')
     } finally {
       setIsLoading(false)
     }
