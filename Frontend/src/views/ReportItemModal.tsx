@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { AlertTriangle, Camera, Check, Sparkles, UploadCloud } from 'lucide-react'
-import { NeoButton, NeoInput, NeoModal, NeoPill, NeoSelect, NeoToggle } from '../neo'
+import { NeoButton, NeoInput, NeoModal, NeoPill, NeoSelect, NeoToggle, useToast } from '../neo'
 import { CATEGORY_NAMES, isSensitive } from '../types'
 import { trackActivity } from '../trackActivity'
 import { createItem, suggestReportDetails } from '../api'
@@ -60,6 +60,7 @@ export default function ReportItemModal({
   prefill?: ReportPrefill | null
   onClose: () => void
 }) {
+  const { push } = useToast()
   const [analyzed, setAnalyzed] = useState(false)
   const [category, setCategory] = useState('')
   const [title, setTitle] = useState('')
@@ -164,7 +165,10 @@ export default function ReportItemModal({
       trackActivity('report_submitted', created.id, { category, title, type: reportType, building, floor })
       setSubmitted(true)
     } catch (err: any) {
-      setError(err?.message || 'Failed to submit report. Please try again.')
+      const message = err?.message || 'Failed to submit report. Please try again.'
+      console.error('Report submission failed:', err)
+      setError(message)
+      push({ title: 'Report could not be submitted', description: message })
     } finally {
       setSubmitting(false)
     }

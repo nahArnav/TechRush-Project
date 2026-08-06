@@ -28,6 +28,7 @@ from .models import (
     ItemCreate,
     ItemList,
     ItemOut,
+    ItemSightingOut,
     ItemStatus,
     ItemType,
     MessageCreate,
@@ -56,6 +57,9 @@ def cors_origins() -> list[str]:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await startup_db()
+    # A fresh SQLite database has no user to associate with demo reports.
+    # Create the fallback account before accepting report submissions.
+    await store.get_or_create_guest_user()
     await store.init_db()
     yield
     await shutdown_db()
@@ -91,6 +95,44 @@ async def require_session(credentials: Annotated[Optional[HTTPAuthorizationCrede
     if role is not None:
         return role
     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired bearer token")
+
+
+async def require_current_user(
+    credentials: Annotated[Optional[HTTPAuthorizationCredentials], Depends(security)],
+) -> dict[str, str | None]:
+    """Return the authenticated user's identity, not just their role."""
+    if credentials is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing bearer token")
+
+    payload = store.decode_access_token(credentials.credentials)
+    if payload and payload.get("role"):
+        return {
+            "id": payload.get("sub"),
+            "email": payload.get("email"),
+            "role": payload["role"],
+        }
+
+    # Demo sessions only carry a role and therefore cannot be associated with
+    # a report owner. Keep them working without granting an ownership match.
+    role = await store.get_session_role(credentials.credentials)
+    if role is not None:
+        return {"id": None, "email": None, "role": role}
+    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired bearer token")
+
+
+async def require_reporter(
+    credentials: Annotated[Optional[HTTPAuthorizationCredentials], Depends(security)],
+) -> dict[str, str]:
+    """Resolve a report owner, falling back to the durable guest account."""
+    if credentials is not None:
+        payload = store.decode_access_token(credentials.credentials)
+        if payload and payload.get("sub") and payload.get("role"):
+            user = await store.get_user_by_id(payload["sub"])
+            if user is not None:
+                return {"id": user.id, "email": user.email, "role": user.role}
+
+    guest = await store.get_or_create_guest_user()
+    return {"id": guest.id, "email": guest.email, "role": guest.role}
 
 
 # ---------------------------------------------------------------------------
@@ -165,8 +207,11 @@ async def list_items(
 
 
 @app.post("/v1/items", response_model=ItemOut, status_code=status.HTTP_201_CREATED)
-async def create_item(payload: ItemCreate, _: Annotated[Role, Depends(require_session)]) -> ItemOut:
-    return await store.create_item(payload)
+async def create_item(
+    payload: ItemCreate,
+    current_user: Annotated[dict[str, str], Depends(require_reporter)],
+) -> ItemOut:
+    return await store.create_item(payload, current_user["id"])
 
 
 @app.get("/v1/items/{item_id}", response_model=ItemOut)
@@ -175,6 +220,18 @@ async def get_item(item_id: str) -> ItemOut:
     if item is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
     return item
+
+
+@app.post("/api/items/{item_id}/saw-this", response_model=ItemSightingOut)
+@app.post("/v1/items/{item_id}/saw-this", response_model=ItemSightingOut)
+async def saw_this_item(
+    item_id: str,
+    current_user: Annotated[dict[str, str], Depends(require_reporter)],
+) -> ItemSightingOut:
+    sighting = await store.toggle_item_sighting(item_id, current_user["id"])
+    if sighting is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
+    return sighting
 
 
 # ---------------------------------------------------------------------------
@@ -186,8 +243,17 @@ async def list_claims(_: Annotated[Role, Depends(require_session)]) -> list[Clai
 
 
 @app.post("/v1/claims", response_model=ClaimOut, status_code=status.HTTP_201_CREATED)
-async def create_claim(payload: ClaimCreate, role: Annotated[Role, Depends(require_session)]) -> ClaimOut:
-    claim = await store.create_claim(payload, role)
+async def create_claim(
+    payload: ClaimCreate,
+    current_user: Annotated[dict[str, str | None], Depends(require_current_user)],
+) -> ClaimOut:
+    item = await store.get_item(payload.item_id)
+    if item is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
+    if item.user_id is not None and item.user_id == current_user["id"]:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="You cannot claim an item you reported")
+
+    claim = await store.create_claim(payload, current_user["role"])
     if claim is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
     return claim

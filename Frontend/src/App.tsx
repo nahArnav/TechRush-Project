@@ -76,6 +76,7 @@ function AppInner() {
   const [loginRole, setLoginRole] = useState<Role | null>(null)
   const [signedIn, setSignedIn] = useState(false)
   const [userId, setUserId] = useState('')
+  const [userDisplayId, setUserDisplayId] = useState('')
   const [authRole, setAuthRole] = useState<Role>('student')
   const [role, setRole] = useState<Role>('student')
   const [supportOpen, setSupportOpen] = useState(false)
@@ -105,12 +106,14 @@ function AppInner() {
   useEffect(() => {
     const savedToken = localStorage.getItem('auth_token')
     const savedEmail = localStorage.getItem('user_email')
+    const savedUserId = localStorage.getItem('user_id')
     const savedRole = localStorage.getItem('user_role') as Role | null
     if (savedToken && savedEmail) {
       const userRole = savedRole || 'student'
       setAuthRole(userRole)
       setRole(userRole)
-      setUserId(savedEmail)
+      setUserId(savedUserId || savedEmail)
+      setUserDisplayId(savedEmail || savedUserId || '')
       setSignedIn(true)
     }
   }, [])
@@ -155,9 +158,11 @@ function AppInner() {
           onBack={() => setLoginRole(null)}
           onNavigate={setPublicRoute}
           onSignIn={(r, id) => {
+            const savedEmail = localStorage.getItem('user_email')
             setAuthRole(r)
             setRole(r)
             setUserId(id)
+            setUserDisplayId(savedEmail || id)
             setSignedIn(true)
             trackActivity('login', undefined, { role: r })
           }}
@@ -215,6 +220,7 @@ function AppInner() {
             role={role}
             authRole={authRole}
             userId={userId}
+            userDisplayId={userDisplayId}
             onProfile={() => {
               setSupportOpen(false)
               setProfileOpen((p) => !p)
@@ -228,10 +234,12 @@ function AppInner() {
               trackActivity('logout')
               localStorage.removeItem('auth_token')
               localStorage.removeItem('user_email')
+              localStorage.removeItem('user_id')
               localStorage.removeItem('user_role')
               setSignedIn(false)
               setLoginRole(null)
               setUserId('')
+              setUserDisplayId('')
               setSupportOpen(false)
               setProfileOpen(false)
               setPublicRoute('home')
@@ -239,11 +247,16 @@ function AppInner() {
           />
 
           {profileOpen ? (
-            <ProfilePage userId={userId} role={role} onBack={() => setProfileOpen(false)} />
+            <ProfilePage
+              userId={userId}
+              userDisplayId={userDisplayId}
+              role={role}
+              onBack={() => setProfileOpen(false)}
+            />
           ) : supportOpen ? (
             <SupportPage />
           ) : role === 'student' ? (
-            <StudentDashboard items={items} claims={claims} onClaim={setClaimItem} onChat={setChatItem} />
+            <StudentDashboard items={items} claims={claims} onClaim={setClaimItem} onChat={setChatItem} currentUserId={userId} />
           ) : role === 'staff' ? (
             <StaffDashboard
               onDraftReport={(prefill) => {

@@ -341,6 +341,7 @@ export function NeoModal({
   tone = 'light',
   icon,
   size = 'md',
+  className = '',
 }: {
   isOpen: boolean
   onClose: () => void
@@ -351,6 +352,7 @@ export function NeoModal({
   tone?: 'light' | 'dark'
   icon?: ReactNode
   size?: 'md' | 'full'
+  className?: string
 }) {
   useEffect(() => {
     if (!isOpen) return
@@ -442,7 +444,7 @@ export function NeoModal({
             animate={{ scale: 1, y: 0, opacity: 1 }}
             exit={{ scale: 0.95, opacity: 0 }}
             transition={SPRING}
-            className={`relative box-border w-[min(28rem,calc(100vw-2rem))] min-w-0 max-w-none rounded-neo-lg p-2xl shadow-float ${dark ? 'glass-dark border-2 border-white text-on-dark' : 'glass shadow-extrude text-ink'}`}
+            className={`relative w-[calc(100vw-2rem)] max-w-2xl min-w-0 rounded-neo-lg p-2xl shadow-float sm:w-full ${className} ${dark ? 'glass-dark border-2 border-white text-on-dark' : 'glass shadow-extrude text-ink'}`}
           >
             {icon ? (
               <div className="mb-lg flex justify-center">
@@ -460,7 +462,7 @@ export function NeoModal({
                 {title}
               </h2>
             ) : null}
-            <div className={dark ? 'text-on-dark-muted' : 'text-ink-soft'}>{children}</div>
+            <div className={`min-w-0 ${dark ? 'text-on-dark-muted' : 'text-ink-soft'}`}>{children}</div>
             {footer ? <div className="mt-2xl flex justify-center gap-md">{footer}</div> : null}
             {!footer && !dark ? (
               <button

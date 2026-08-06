@@ -1,3 +1,4 @@
+import { Fragment } from 'react'
 import { CLAIM_STAGES, type ClaimStage } from '../types'
 
 /*
@@ -11,12 +12,12 @@ export default function WorkflowTracker({ stage, dark = false }: { stage: ClaimS
   const labelColor = dark ? 'text-on-dark-muted' : 'text-ink-muted'
 
   return (
-    <div className="flex items-center">
+    <div className="grid w-full min-w-0 grid-cols-[minmax(0,1fr)_24px_minmax(0,1fr)_24px_minmax(0,1fr)] items-start">
       {CLAIM_STAGES.map((s, i) => {
         const state = i < activeIndex ? 'done' : i === activeIndex ? 'active' : 'pending'
         return (
-          <div key={s.id} className="flex flex-1 items-center">
-            <div className="flex flex-col items-center gap-xs">
+          <Fragment key={s.id}>
+            <div className="flex min-w-0 flex-col items-center gap-xs text-center">
               {state === 'done' ? (
                 <span className={`size-3.5 rounded-neo-full ${dark ? 'bg-on-dark' : 'bg-ink'}`} />
               ) : state === 'active' ? (
@@ -28,14 +29,14 @@ export default function WorkflowTracker({ stage, dark = false }: { stage: ClaimS
                   className={`size-3.5 rounded-neo-full border border-dashed ${dark ? 'border-on-dark/50' : 'border-ink-muted'}`}
                 />
               )}
-              <span className={`text-[10px] font-medium uppercase tracking-widest ${labelColor}`}>
+              <span className={`whitespace-nowrap text-[9px] font-medium uppercase tracking-[0.14em] ${labelColor}`}>
                 {s.label}
               </span>
             </div>
             {i < CLAIM_STAGES.length - 1 ? (
-              <span className={`mx-sm mb-4 h-px flex-1 ${dark ? 'bg-on-dark/25' : 'bg-ink/20'}`} />
+              <span className={`mt-[7px] h-px w-full ${dark ? 'bg-on-dark/25' : 'bg-ink/20'}`} />
             ) : null}
-          </div>
+          </Fragment>
         )
       })}
     </div>

@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Eye, Lock, MapPin, MessageSquare, Sparkles } from 'lucide-react'
 import { GlassCard, NeoButton, NeoPill, useTheme } from '../neo'
 import { emojiFor, isCampusId, type Claim, type Item } from '../types'
 import WorkflowTracker from './WorkflowTracker'
 import { trackActivity } from '../trackActivity'
+import { toggleSawThis } from '../api'
 
 /*
  * The discovery unit. Three states, all strictly grayscale:
@@ -18,12 +19,14 @@ export default function NeoCard({
   variant = 'default',
   onClaim,
   onChat,
+  currentUserId,
 }: {
   item: Item
   claim?: Claim
   variant?: 'default' | 'ai'
   onClaim: (item: Item) => void
   onChat?: (item: Item) => void
+  currentUserId?: string
 }) {
   const ai = variant === 'ai'
   const { theme } = useTheme()
@@ -32,7 +35,40 @@ export default function NeoCard({
   // tracker chrome). All text/colour uses the theme-aware `ai-*` tokens.
   const aiDark = ai && theme === 'dark'
   const [confirmed, setConfirmed] = useState(false)
-  const [confirms, setConfirms] = useState(3)
+  const [confirms, setConfirms] = useState(item.sightingCount ?? 0)
+  const [sightingLoading, setSightingLoading] = useState(false)
+  const isOwner = Boolean(currentUserId && item.userId && currentUserId === item.userId)
+
+  useEffect(() => {
+    setConfirms(item.sightingCount ?? 0)
+    setConfirmed(Boolean(currentUserId && item.sightedByUserIds?.includes(currentUserId)))
+  }, [currentUserId, item.id, item.sightedByUserIds, item.sightingCount])
+
+  const handleSawThis = async () => {
+    if (sightingLoading) return
+
+    const previousConfirmed = confirmed
+    const previousCount = confirms
+    const optimisticConfirmed = !confirmed
+    const optimisticCount = Math.max(0, confirms + (optimisticConfirmed ? 1 : -1))
+
+    setConfirmed(optimisticConfirmed)
+    setConfirms(optimisticCount)
+    setSightingLoading(true)
+    trackActivity('i_saw_this', item.id, { title: item.title, confirmed: optimisticConfirmed })
+
+    try {
+      const result = await toggleSawThis(item.id)
+      setConfirmed(result.sighted)
+      setConfirms(result.sightingCount)
+    } catch (err) {
+      console.error('Failed to persist sighting:', err)
+      setConfirmed(previousConfirmed)
+      setConfirms(previousCount)
+    } finally {
+      setSightingLoading(false)
+    }
+  }
   // Automatic ID match (Feature 22): locked, blurred, owner-notified.
   if (isCampusId(item.category)) {
     return (
@@ -71,16 +107,16 @@ export default function NeoCard({
   const Body = (
     <>
       <div className="flex items-start justify-between gap-md">
-        <div className="flex items-center gap-md">
+        <div className="flex min-w-0 items-center gap-md">
           <span
-            className={`flex size-11 items-center justify-center rounded-neo text-xl ${ai ? 'border border-ai-border bg-ai-surface' : 'bg-plate shadow-extrude-sm'}`}
+            className={`flex size-11 shrink-0 items-center justify-center rounded-neo text-xl ${ai ? 'border border-ai-border bg-ai-surface' : 'bg-plate shadow-extrude-sm'}`}
           >
             {emojiFor(item.category)}
           </span>
-          <div>
-            <p className="text-sm font-bold tracking-tight">{item.title}</p>
-            <p className={`flex items-center gap-xs text-xs ${muted}`}>
-              <MapPin size={11} /> {item.location}
+          <div className="min-w-0">
+            <p className="break-words text-sm font-bold tracking-tight">{item.title}</p>
+            <p className={`flex min-w-0 items-start gap-xs break-words text-xs ${muted}`}>
+              <MapPin className="mt-0.5 shrink-0" size={11} /> <span className="min-w-0">{item.location}</span>
             </p>
           </div>
         </div>
@@ -91,35 +127,42 @@ export default function NeoCard({
         ) : null}
       </div>
 
-      <p className={`text-xs leading-relaxed ${muted}`}>{item.description}</p>
+      <p className={`break-words text-xs leading-relaxed ${muted}`}>{item.description}</p>
 
       {claim ? (
-        <div className="flex flex-col gap-md">
-          <div className={`rounded-neo p-md ${ai ? 'border border-ai-border bg-ai-surface' : 'bg-plate shadow-carve-sm'}`}>
+        <div className="flex w-full min-w-0 flex-col gap-md">
+          <div className={`w-full min-w-0 overflow-hidden rounded-neo p-md ${ai ? 'border border-ai-border bg-ai-surface' : 'bg-plate shadow-carve-sm'}`}>
             <WorkflowTracker stage={claim.stage} dark={aiDark} />
           </div>
-          <NeoPill iconStart={<MessageSquare size={13} />} onClick={() => { trackActivity('chat_opened', item.id); onChat?.(item) }}>
+          <NeoPill
+            className="w-full justify-center whitespace-normal text-center leading-tight"
+            iconStart={<MessageSquare className="shrink-0" size={13} />}
+            onClick={() => { trackActivity('chat_opened', item.id); onChat?.(item) }}
+          >
             Safe chat &amp; handover
           </NeoPill>
         </div>
       ) : (
-        <div className="flex items-center justify-between gap-md">
+        <div className="flex min-w-0 items-center justify-between gap-md">
           {/* Community confirmation (Feature 28) */}
           <NeoPill
+            className="shrink-0"
             active={confirmed}
             iconStart={<Eye size={13} />}
-            onClick={() => {
-              const nextState = !confirmed
-              setConfirmed(nextState)
-              setConfirms((n) => (confirmed ? n - 1 : n + 1))
-              trackActivity('i_saw_this', item.id, { title: item.title, confirmed: nextState })
-            }}
+            onClick={handleSawThis}
+            disabled={sightingLoading}
           >
             I saw this · {confirms}
           </NeoPill>
-          <NeoButton variant={aiDark ? 'dark' : 'raised'} size="sm" onClick={() => { trackActivity('claim_opened', item.id); onClaim(item) }}>
-            Claim
-          </NeoButton>
+          {isOwner ? (
+            <span className={`inline-flex min-h-9 min-w-0 flex-1 items-center justify-center rounded-neo-full px-md py-sm text-center text-[10px] font-black uppercase leading-tight tracking-[0.12em] ${ai ? 'border border-ai-border bg-ai-surface text-ai-ink' : 'bg-plate text-ink-muted shadow-carve-sm'}`}>
+              You reported this item
+            </span>
+          ) : (
+            <NeoButton variant={aiDark ? 'dark' : 'raised'} size="sm" onClick={() => { trackActivity('claim_opened', item.id); onClaim(item) }}>
+              Claim
+            </NeoButton>
+          )}
         </div>
       )}
     </>
