@@ -70,7 +70,19 @@ export async function fetchItems(params?: {
   const res = await fetch(url, { headers: getHeaders() })
   if (!res.ok) throw new Error('Failed to fetch items')
   const data = await res.json()
-  return data.items || []
+  const rawItems = data.items || []
+
+  return rawItems.map((i: any) => ({
+    id: String(i.id || 'LF-0000'),
+    type: i.type || 'found',
+    category: i.category || 'Other',
+    title: i.title || 'Reported item',
+    description: i.description || '',
+    location: i.location || 'Campus Quad',
+    date: i.date || new Date().toISOString().split('T')[0],
+    status: i.status || 'open',
+    matchScore: typeof i.matchScore === 'number' ? i.matchScore : (typeof i.match_score === 'number' ? i.match_score : 0.5),
+  }))
 }
 
 export async function createItem(itemData: {
@@ -93,7 +105,18 @@ export async function createItem(itemData: {
     const err = await res.json().catch(() => ({}))
     throw new Error(err.detail || 'Failed to report item')
   }
-  return res.json()
+  const i = await res.json()
+  return {
+    id: String(i.id || 'LF-0000'),
+    type: i.type || 'found',
+    category: i.category || 'Other',
+    title: i.title || 'Reported item',
+    description: i.description || '',
+    location: i.location || 'Campus Quad',
+    date: i.date || new Date().toISOString().split('T')[0],
+    status: i.status || 'open',
+    matchScore: typeof i.matchScore === 'number' ? i.matchScore : (typeof i.match_score === 'number' ? i.match_score : 0.5),
+  }
 }
 
 export async function getItem(id: string): Promise<Item> {

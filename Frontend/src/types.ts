@@ -105,7 +105,8 @@ const PLACES = [
   'Handed to help desk',
 ]
 export function timelineFor(item: Item): TimelineEvent[] {
-  const seed = item.id.split('').reduce((a, c) => a + c.charCodeAt(0), 0)
+  const itemId = String(item?.id || 'LF-0000')
+  const seed = itemId.split('').reduce((a, c) => a + c.charCodeAt(0), 0)
   const times = ['9:00 AM', '10:30 AM', '12:15 PM']
   return times.map((time, i) => ({ time, place: PLACES[(seed + i) % PLACES.length] }))
 }

@@ -88,7 +88,7 @@ export default function NeoCard({
         </div>
         {ai ? (
           <span className="flex items-center gap-xs rounded-neo-full border border-ai-border px-md py-xs text-[10px] font-black uppercase tracking-widest text-ai-ink">
-            <Sparkles size={11} /> {Math.round(item.matchScore * 100)}%
+            <Sparkles size={11} /> {Math.round((typeof item?.matchScore === 'number' ? item.matchScore : 0.5) * 100)}%
           </span>
         ) : null}
       </div>
