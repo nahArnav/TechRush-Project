@@ -69,16 +69,34 @@ export default function LoginPage({
     setIsLoading(true)
 
     try {
-      const endpoint = mode === 'register' ? '/v1/auth/register' : '/v1/auth/login'
-      const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email,
-          password,
-          role: mode === 'register' ? role : undefined,
-        }),
+      const endpoint = mode === 'register' ? '/api/auth/register' : '/api/auth/login'
+      const primaryUrl = import.meta.env.VITE_API_BASE_URL
+        ? `${import.meta.env.VITE_API_BASE_URL}${endpoint}`
+        : endpoint
+
+      const requestBody = JSON.stringify({
+        email,
+        password,
+        role: mode === 'register' ? role : undefined,
       })
+
+      const doFetch = (url: string) =>
+        fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: requestBody,
+        })
+
+      let response: Response
+      try {
+        response = await doFetch(primaryUrl)
+      } catch {
+        if (primaryUrl !== `http://localhost:8000${endpoint}`) {
+          response = await doFetch(`http://localhost:8000${endpoint}`)
+        } else {
+          throw new Error('Network error')
+        }
+      }
 
       const data = await response.json().catch(() => ({}))
 
@@ -99,13 +117,14 @@ export default function LoginPage({
 
       const msg = data.detail || (mode === 'register' ? 'Registration failed. Email may already be in use.' : 'Invalid email or password.')
       setError(msg)
-    } catch (err: any) {
+    } catch {
       if (mode === 'login' && !cleanInput.includes('@')) {
         setIsLoading(false)
         trackActivity('login', undefined, { role, demo: true })
         onSignIn(role, cleanInput)
         return
       }
+      setError('Unable to connect to backend server. Please make sure backend is running on http://localhost:8000.')
     } finally {
       setIsLoading(false)
     }

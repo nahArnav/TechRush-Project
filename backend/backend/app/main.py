@@ -41,7 +41,10 @@ security = HTTPBearer(auto_error=False)
 
 
 def cors_origins() -> list[str]:
-    raw = os.getenv("CORS_ORIGINS", "http://localhost:8443,http://127.0.0.1:8443,http://localhost:5173,http://localhost:5174")
+    raw = os.getenv(
+        "CORS_ORIGINS",
+        "http://localhost:8443,http://127.0.0.1:8443,http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174,http://localhost:3000",
+    )
     return [origin.strip() for origin in raw.split(",") if origin.strip()]
 
 
@@ -65,6 +68,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins(),
+    allow_origin_regex=r"https?://.*",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
