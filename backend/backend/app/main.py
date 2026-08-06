@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from contextlib import asynccontextmanager
 from typing import Annotated, Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Query, status
@@ -8,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from . import store
+from .database import startup_db, shutdown_db
 from .models import (
     AnalyticsSummary,
     CampusMapOut,
@@ -41,10 +43,22 @@ def cors_origins() -> list[str]:
     return [origin.strip() for origin in raw.split(",") if origin.strip()]
 
 
+# ---------------------------------------------------------------------------
+# Lifespan: replaces deprecated @app.on_event("startup") / ("shutdown")
+# ---------------------------------------------------------------------------
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await startup_db()
+    await store.init_db()
+    yield
+    await shutdown_db()
+
+
 app = FastAPI(
     title="LostAndFound API",
     description="Campus lost-and-found backend for item discovery, verification, handovers, CCTV queueing, map data, and user authentication.",
     version="1.0.0",
+    lifespan=lifespan,
 )
 app.add_middleware(
     CORSMiddleware,
@@ -55,39 +69,43 @@ app.add_middleware(
 )
 
 
-@app.on_event("startup")
-def startup() -> None:
-    store.init_db()
-
-
-def require_session(credentials: Annotated[Optional[HTTPAuthorizationCredentials], Depends(security)]) -> Role:
+# ---------------------------------------------------------------------------
+# Auth dependency
+# ---------------------------------------------------------------------------
+async def require_session(credentials: Annotated[Optional[HTTPAuthorizationCredentials], Depends(security)]) -> Role:
     if credentials is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing bearer token")
     token = credentials.credentials
     payload = store.decode_access_token(token)
     if payload and "role" in payload:
         return payload["role"]
-    role = store.get_session_role(token)
+    role = await store.get_session_role(token)
     if role is not None:
         return role
     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired bearer token")
 
 
+# ---------------------------------------------------------------------------
+# Health
+# ---------------------------------------------------------------------------
 @app.get("/health")
-def health() -> dict[str, str]:
+async def health() -> dict[str, str]:
     return {"status": "ok", "service": "lost-found-api"}
 
 
+# ---------------------------------------------------------------------------
+# Auth endpoints
+# ---------------------------------------------------------------------------
 @app.post("/api/auth/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
 @app.post("/v1/auth/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
-def register_user(payload: UserRegister) -> TokenResponse:
-    existing = store.get_user_by_email(payload.email)
+async def register_user(payload: UserRegister) -> TokenResponse:
+    existing = await store.get_user_by_email(payload.email)
     if existing is not None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email is already registered")
-    
+
     password_hash = store.hash_password(payload.password)
-    user = store.create_user(email=payload.email, password_hash=password_hash, role=payload.role or "student")
-    
+    user = await store.create_user(email=payload.email, password_hash=password_hash, role=payload.role or "student")
+
     token = store.create_access_token(user_id=user.id, email=user.email, role=user.role)
     return TokenResponse(
         access_token=token,
@@ -100,14 +118,14 @@ def register_user(payload: UserRegister) -> TokenResponse:
 
 @app.post("/api/auth/login", response_model=TokenResponse)
 @app.post("/v1/auth/login", response_model=TokenResponse)
-def login_user(payload: UserLogin) -> TokenResponse:
-    user_row = store.get_user_by_email(payload.email)
+async def login_user(payload: UserLogin) -> TokenResponse:
+    user_row = await store.get_user_by_email(payload.email)
     if user_row is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
-    
+
     if not store.verify_password(payload.password, user_row["password_hash"]):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
-    
+
     token = store.create_access_token(user_id=user_row["id"], email=user_row["email"], role=user_row["role"])
     return TokenResponse(
         access_token=token,
@@ -119,102 +137,121 @@ def login_user(payload: UserLogin) -> TokenResponse:
 
 
 @app.post("/v1/auth/demo-session", response_model=SessionOut)
-def demo_session(payload: DemoSessionCreate) -> SessionOut:
-    token = store.issue_session(payload.role)
+async def demo_session(payload: DemoSessionCreate) -> SessionOut:
+    token = await store.issue_session(payload.role)
     return SessionOut(token=token, role=payload.role)
 
 
+# ---------------------------------------------------------------------------
+# Item endpoints
+# ---------------------------------------------------------------------------
 @app.get("/v1/items", response_model=ItemList)
-def list_items(
+async def list_items(
     q: Annotated[Optional[str], Query(max_length=120)] = None,
     type: Optional[ItemType] = None,
     status: Optional[ItemStatus] = None,
     category: Annotated[Optional[str], Query(max_length=80)] = None,
 ) -> ItemList:
-    return ItemList(items=store.list_items(query=q, item_type=type, status=status, category=category))
+    items = await store.list_items(query=q, item_type=type, status=status, category=category)
+    return ItemList(items=items)
 
 
 @app.post("/v1/items", response_model=ItemOut, status_code=status.HTTP_201_CREATED)
-def create_item(payload: ItemCreate, _: Annotated[Role, Depends(require_session)]) -> ItemOut:
-    return store.create_item(payload)
+async def create_item(payload: ItemCreate, _: Annotated[Role, Depends(require_session)]) -> ItemOut:
+    return await store.create_item(payload)
 
 
 @app.get("/v1/items/{item_id}", response_model=ItemOut)
-def get_item(item_id: str) -> ItemOut:
-    item = store.get_item(item_id)
+async def get_item(item_id: str) -> ItemOut:
+    item = await store.get_item(item_id)
     if item is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
     return item
 
 
+# ---------------------------------------------------------------------------
+# Claim endpoints
+# ---------------------------------------------------------------------------
 @app.get("/v1/claims", response_model=list[ClaimOut])
-def list_claims(_: Annotated[Role, Depends(require_session)]) -> list[ClaimOut]:
-    return store.list_claims()
+async def list_claims(_: Annotated[Role, Depends(require_session)]) -> list[ClaimOut]:
+    return await store.list_claims()
 
 
 @app.post("/v1/claims", response_model=ClaimOut, status_code=status.HTTP_201_CREATED)
-def create_claim(payload: ClaimCreate, role: Annotated[Role, Depends(require_session)]) -> ClaimOut:
-    claim = store.create_claim(payload, role)
+async def create_claim(payload: ClaimCreate, role: Annotated[Role, Depends(require_session)]) -> ClaimOut:
+    claim = await store.create_claim(payload, role)
     if claim is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
     return claim
 
 
 @app.patch("/v1/claims/{claim_id}/stage", response_model=ClaimOut)
-def update_claim_stage(
-    claim_id: int,
+async def update_claim_stage(
+    claim_id: str,
     payload: ClaimStageUpdate,
     role: Annotated[Role, Depends(require_session)],
 ) -> ClaimOut:
     if role not in {"staff", "admin"}:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Staff or admin role required")
-    claim = store.update_claim_stage(claim_id, payload.stage)
+    claim = await store.update_claim_stage(claim_id, payload.stage)
     if claim is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Claim not found")
     return claim
 
 
+# ---------------------------------------------------------------------------
+# Message / Chat endpoints
+# ---------------------------------------------------------------------------
 @app.get("/v1/messages/{item_id}", response_model=list[MessageOut])
-def list_messages(item_id: str, _: Annotated[Role, Depends(require_session)]) -> list[MessageOut]:
-    messages = store.list_messages(item_id)
+async def list_messages(item_id: str, _: Annotated[Role, Depends(require_session)]) -> list[MessageOut]:
+    messages = await store.list_messages(item_id)
     if messages is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
     return messages
 
 
 @app.post("/v1/messages/{item_id}", response_model=MessageOut, status_code=status.HTTP_201_CREATED)
-def create_message(
+async def create_message(
     item_id: str,
     payload: MessageCreate,
     _: Annotated[Role, Depends(require_session)],
 ) -> MessageOut:
-    message = store.create_message(item_id, payload)
+    message = await store.create_message(item_id, payload)
     if message is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
     return message
 
 
+# ---------------------------------------------------------------------------
+# Handover endpoints
+# ---------------------------------------------------------------------------
 @app.post("/v1/handovers", response_model=HandoverOut, status_code=status.HTTP_201_CREATED)
-def create_handover(payload: HandoverCreate, _: Annotated[Role, Depends(require_session)]) -> HandoverOut:
-    handover = store.create_handover(payload)
+async def create_handover(payload: HandoverCreate, _: Annotated[Role, Depends(require_session)]) -> HandoverOut:
+    handover = await store.create_handover(payload)
     if handover is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
     return handover
 
 
+# ---------------------------------------------------------------------------
+# CCTV endpoints
+# ---------------------------------------------------------------------------
 @app.post("/v1/cctv-requests", response_model=CctvRequestOut, status_code=status.HTTP_201_CREATED)
-def create_cctv_request(
+async def create_cctv_request(
     payload: CctvRequestCreate,
     _: Annotated[Role, Depends(require_session)],
 ) -> CctvRequestOut:
-    return store.create_cctv_request(payload)
+    return await store.create_cctv_request(payload)
 
 
+# ---------------------------------------------------------------------------
+# Map & Analytics
+# ---------------------------------------------------------------------------
 @app.get("/v1/map", response_model=CampusMapOut)
-def campus_map() -> CampusMapOut:
-    return store.campus_map()
+async def campus_map() -> CampusMapOut:
+    return await store.campus_map()
 
 
 @app.get("/v1/analytics/summary", response_model=AnalyticsSummary)
-def analytics_summary(_: Annotated[Role, Depends(require_session)]) -> dict[str, object]:
-    return store.analytics_summary()
+async def analytics_summary(_: Annotated[Role, Depends(require_session)]) -> dict[str, object]:
+    return await store.analytics_summary()

@@ -1,8 +1,11 @@
 from __future__ import annotations
 
-from typing import Literal, Optional, Union
+from typing import Annotated, Any, Literal, Optional, Union
 
-from pydantic import BaseModel, Field
+from bson import ObjectId
+from pydantic import BaseModel, ConfigDict, Field, GetJsonSchemaHandler
+from pydantic.json_schema import JsonSchemaValue
+from pydantic_core import core_schema
 
 ItemType = Literal["lost", "found"]
 ItemStatus = Literal["open", "in_review", "secured", "escalated", "closed"]
@@ -12,11 +15,53 @@ SecurityLevel = Literal["public", "staff", "security"]
 ZoneKind = Literal["building", "ground", "service"]
 
 
+# ---------------------------------------------------------------------------
+# PyObjectId: custom type that lets Pydantic serialize ObjectId ↔ str
+# ---------------------------------------------------------------------------
+class _ObjectIdPydanticAnnotation:
+    """Pydantic-v2 compatible annotation for BSON ObjectId fields."""
+
+    @classmethod
+    def __get_pydantic_core_schema__(
+        cls,
+        _source_type: Any,
+        _handler: Any,
+    ) -> core_schema.CoreSchema:
+        def validate_object_id(value: Any) -> ObjectId:
+            if isinstance(value, ObjectId):
+                return value
+            if ObjectId.is_valid(value):
+                return ObjectId(value)
+            raise ValueError("Invalid ObjectId")
+
+        return core_schema.no_info_plain_validator_function(
+            validate_object_id,
+            serialization=core_schema.to_string_ser_schema(),
+        )
+
+    @classmethod
+    def __get_pydantic_json_schema__(
+        cls,
+        _schema: core_schema.CoreSchema,
+        handler: GetJsonSchemaHandler,
+    ) -> JsonSchemaValue:
+        return handler(core_schema.str_schema())
+
+
+PyObjectId = Annotated[ObjectId, _ObjectIdPydanticAnnotation]
+
+
+# ---------------------------------------------------------------------------
+# Shared / Map models
+# ---------------------------------------------------------------------------
 class CampusPoint(BaseModel):
     x: float
     z: float
 
 
+# ---------------------------------------------------------------------------
+# Item models
+# ---------------------------------------------------------------------------
 class ItemCreate(BaseModel):
     type: ItemType
     category: str = Field(min_length=2, max_length=80)
@@ -30,6 +75,8 @@ class ItemCreate(BaseModel):
 
 
 class ItemOut(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, arbitrary_types_allowed=True)
+
     id: str
     type: ItemType
     category: str
@@ -46,6 +93,9 @@ class ItemList(BaseModel):
     items: list[ItemOut]
 
 
+# ---------------------------------------------------------------------------
+# Claim models
+# ---------------------------------------------------------------------------
 class ClaimCreate(BaseModel):
     item_id: str
     proof: str = Field(min_length=10, max_length=1200)
@@ -56,7 +106,9 @@ class ClaimStageUpdate(BaseModel):
 
 
 class ClaimOut(BaseModel):
-    id: int
+    model_config = ConfigDict(populate_by_name=True, arbitrary_types_allowed=True)
+
+    id: str
     item_id: str
     stage: ClaimStage
     claimant_role: Role
@@ -64,19 +116,27 @@ class ClaimOut(BaseModel):
     created_at: str
 
 
+# ---------------------------------------------------------------------------
+# Message / Chat models
+# ---------------------------------------------------------------------------
 class MessageCreate(BaseModel):
     text: str = Field(min_length=1, max_length=600)
     sender: Literal["me", "them", "staff", "system"] = "me"
 
 
 class MessageOut(BaseModel):
-    id: int
+    model_config = ConfigDict(populate_by_name=True, arbitrary_types_allowed=True)
+
+    id: str
     item_id: str
     sender: str
     text: str
     created_at: str
 
 
+# ---------------------------------------------------------------------------
+# Handover models
+# ---------------------------------------------------------------------------
 class HandoverCreate(BaseModel):
     item_id: str
     date_label: str = Field(min_length=3, max_length=40)
@@ -84,7 +144,9 @@ class HandoverCreate(BaseModel):
 
 
 class HandoverOut(BaseModel):
-    id: int
+    model_config = ConfigDict(populate_by_name=True, arbitrary_types_allowed=True)
+
+    id: str
     item_id: str
     date_label: str
     slot: str
@@ -92,6 +154,9 @@ class HandoverOut(BaseModel):
     created_at: str
 
 
+# ---------------------------------------------------------------------------
+# CCTV Request models
+# ---------------------------------------------------------------------------
 class CctvRequestCreate(BaseModel):
     location: str = Field(min_length=2, max_length=180)
     itemTitle: Optional[str] = Field(default=None, max_length=160)
@@ -99,7 +164,9 @@ class CctvRequestCreate(BaseModel):
 
 
 class CctvRequestOut(BaseModel):
-    id: int
+    model_config = ConfigDict(populate_by_name=True, arbitrary_types_allowed=True)
+
+    id: str
     location: str
     item_title: Optional[str]
     time_window: Optional[str]
@@ -107,6 +174,9 @@ class CctvRequestOut(BaseModel):
     created_at: str
 
 
+# ---------------------------------------------------------------------------
+# Campus Map models
+# ---------------------------------------------------------------------------
 class CampusZone(BaseModel):
     id: str
     label: str
@@ -138,6 +208,9 @@ class CampusMapOut(BaseModel):
     pins: list[CampusPin]
 
 
+# ---------------------------------------------------------------------------
+# Analytics
+# ---------------------------------------------------------------------------
 class AnalyticsSummary(BaseModel):
     total_items: int
     open_items: int
@@ -147,6 +220,9 @@ class AnalyticsSummary(BaseModel):
     by_category: list[dict[str, Union[int, str]]]
 
 
+# ---------------------------------------------------------------------------
+# Auth / Session models
+# ---------------------------------------------------------------------------
 class DemoSessionCreate(BaseModel):
     role: Role
 
@@ -168,7 +244,9 @@ class UserLogin(BaseModel):
 
 
 class UserOut(BaseModel):
-    id: int
+    model_config = ConfigDict(populate_by_name=True, arbitrary_types_allowed=True)
+
+    id: str
     email: str
     role: Role
     created_at: str
@@ -178,7 +256,6 @@ class UserOut(BaseModel):
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
-    user_id: int
+    user_id: str
     email: str
     role: Role
-

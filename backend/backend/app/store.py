@@ -3,15 +3,16 @@ from __future__ import annotations
 import math
 import os
 import secrets
-import sqlite3
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional
 
 import bcrypt
 import jwt
+from bson import ObjectId
 from dotenv import load_dotenv
 
+from . import database
 from .models import (
     CampusMapOut,
     CampusPath,
@@ -37,11 +38,13 @@ from .models import (
 
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
-DB_PATH = Path(os.getenv("LOST_FOUND_DB", Path(__file__).resolve().parents[1] / "lost_found.sqlite3"))
 JWT_SECRET = os.getenv("JWT_SECRET", "super_secret_jwt_key_techrush_2026")
 JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 SENSITIVE_CATEGORIES = {"Government ID", "Medicine", "ID Card"}
 
+# ---------------------------------------------------------------------------
+# Static campus data
+# ---------------------------------------------------------------------------
 ZONE_DEFS = [
     {"id": "library", "label": "Hargrove Library", "kind": "building", "x": -2.8, "z": -1.8, "width": 2.6, "depth": 2.0, "height": 1.6, "securityLevel": "public"},
     {"id": "science", "label": "Kessler Science", "kind": "building", "x": 2.4, "z": -1.7, "width": 2.1, "depth": 2.2, "height": 1.3, "securityLevel": "staff"},
@@ -89,110 +92,11 @@ SEED_ITEMS = [
 ]
 
 
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
-
-
-def connect() -> sqlite3.Connection:
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
-    return conn
-
-
-def init_db() -> None:
-    with connect() as conn:
-        conn.executescript(
-            """
-            CREATE TABLE IF NOT EXISTS users (
-              id INTEGER PRIMARY KEY AUTOINCREMENT,
-              email TEXT UNIQUE NOT NULL,
-              password_hash TEXT NOT NULL,
-              role TEXT NOT NULL DEFAULT 'student',
-              created_at TEXT NOT NULL,
-              updated_at TEXT NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS sessions (
-              token TEXT PRIMARY KEY,
-              role TEXT NOT NULL,
-              created_at TEXT NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS items (
-              id TEXT PRIMARY KEY,
-              type TEXT NOT NULL,
-              category TEXT NOT NULL,
-              title TEXT NOT NULL,
-              description TEXT NOT NULL,
-              location TEXT NOT NULL,
-              date TEXT NOT NULL,
-              status TEXT NOT NULL,
-              match_score REAL NOT NULL,
-              coord_x REAL,
-              coord_z REAL,
-              created_at TEXT NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS claims (
-              id INTEGER PRIMARY KEY AUTOINCREMENT,
-              item_id TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
-              stage TEXT NOT NULL,
-              claimant_role TEXT NOT NULL,
-              proof TEXT NOT NULL,
-              created_at TEXT NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS messages (
-              id INTEGER PRIMARY KEY AUTOINCREMENT,
-              item_id TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
-              sender TEXT NOT NULL,
-              text TEXT NOT NULL,
-              created_at TEXT NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS handovers (
-              id INTEGER PRIMARY KEY AUTOINCREMENT,
-              item_id TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
-              date_label TEXT NOT NULL,
-              slot TEXT NOT NULL,
-              code TEXT NOT NULL,
-              created_at TEXT NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS cctv_requests (
-              id INTEGER PRIMARY KEY AUTOINCREMENT,
-              location TEXT NOT NULL,
-              item_title TEXT,
-              time_window TEXT,
-              status TEXT NOT NULL,
-              created_at TEXT NOT NULL
-            );
-            """
-        )
-        count = conn.execute("SELECT COUNT(*) AS count FROM items").fetchone()["count"]
-        if count == 0:
-            seed_items(conn)
-
-
-def seed_items(conn: sqlite3.Connection) -> None:
-    now = utc_now()
-    for item in SEED_ITEMS:
-        coord_x, coord_z = infer_coordinates(item[5])
-        conn.execute(
-            """
-            INSERT INTO items
-              (id, type, category, title, description, location, date, status, match_score, coord_x, coord_z, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (*item, coord_x, coord_z, now),
-        )
-
-    conn.execute(
-        "INSERT INTO claims (item_id, stage, claimant_role, proof, created_at) VALUES (?, ?, ?, ?, ?)",
-        ("LF-1043", "review", "student", "Sleeve has a small tear near the zipper.", now),
-    )
 
 
 def infer_coordinates(location: str) -> tuple[float, float]:
@@ -215,112 +119,150 @@ def zone_for_location(location: str) -> str:
     return "quad"
 
 
-def row_to_item(row: sqlite3.Row) -> ItemOut:
+def _doc_to_item(doc: dict) -> ItemOut:
     coordinates = None
-    if row["coord_x"] is not None and row["coord_z"] is not None:
-        coordinates = CampusPoint(x=row["coord_x"], z=row["coord_z"])
+    if doc.get("coord_x") is not None and doc.get("coord_z") is not None:
+        coordinates = CampusPoint(x=doc["coord_x"], z=doc["coord_z"])
     return ItemOut(
-        id=row["id"],
-        type=row["type"],
-        category=row["category"],
-        title=row["title"],
-        description=row["description"],
-        location=row["location"],
-        date=row["date"],
-        status=row["status"],
-        match_score=row["match_score"],
+        id=doc["id"],
+        type=doc["type"],
+        category=doc["category"],
+        title=doc["title"],
+        description=doc["description"],
+        location=doc["location"],
+        date=doc["date"],
+        status=doc["status"],
+        match_score=doc["match_score"],
         coordinates=coordinates,
     )
 
 
-def row_to_claim(row: sqlite3.Row) -> ClaimOut:
+def _doc_to_claim(doc: dict) -> ClaimOut:
     return ClaimOut(
-        id=row["id"],
-        item_id=row["item_id"],
-        stage=row["stage"],
-        claimant_role=row["claimant_role"],
-        proof_submitted=bool(row["proof"]),
-        created_at=row["created_at"],
+        id=str(doc["_id"]),
+        item_id=doc["item_id"],
+        stage=doc["stage"],
+        claimant_role=doc["claimant_role"],
+        proof_submitted=bool(doc.get("proof")),
+        created_at=doc["created_at"],
     )
 
 
-def issue_session(role: Role) -> str:
+# ---------------------------------------------------------------------------
+# Database initialisation & seeding
+# ---------------------------------------------------------------------------
+async def init_db() -> None:
+    """Seed items + one demo claim if the items collection is empty."""
+    count = await database.db.items.count_documents({})
+    if count == 0:
+        await _seed_items()
+
+
+async def _seed_items() -> None:
+    now = utc_now()
+    item_docs = []
+    for item in SEED_ITEMS:
+        coord_x, coord_z = infer_coordinates(item[5])
+        item_docs.append({
+            "id": item[0],
+            "type": item[1],
+            "category": item[2],
+            "title": item[3],
+            "description": item[4],
+            "location": item[5],
+            "date": item[6],
+            "status": item[7],
+            "match_score": item[8],
+            "coord_x": coord_x,
+            "coord_z": coord_z,
+            "created_at": now,
+        })
+    await database.db.items.insert_many(item_docs)
+
+    # One demo claim
+    await database.db.claims.insert_one({
+        "item_id": "LF-1043",
+        "stage": "review",
+        "claimant_role": "student",
+        "proof": "Sleeve has a small tear near the zipper.",
+        "created_at": now,
+    })
+
+
+# ---------------------------------------------------------------------------
+# Session management
+# ---------------------------------------------------------------------------
+async def issue_session(role: Role) -> str:
     token = secrets.token_urlsafe(32)
-    with connect() as conn:
-        conn.execute(
-            "INSERT INTO sessions (token, role, created_at) VALUES (?, ?, ?)",
-            (token, role, utc_now()),
-        )
+    await database.db.sessions.insert_one({
+        "token": token,
+        "role": role,
+        "created_at": utc_now(),
+    })
     return token
 
 
-def get_session_role(token: str) -> Optional[Role]:
-    with connect() as conn:
-        row = conn.execute("SELECT role FROM sessions WHERE token = ?", (token,)).fetchone()
-    return row["role"] if row else None
+async def get_session_role(token: str) -> Optional[Role]:
+    doc = await database.db.sessions.find_one({"token": token})
+    return doc["role"] if doc else None
 
 
-def list_items(
+# ---------------------------------------------------------------------------
+# Item CRUD
+# ---------------------------------------------------------------------------
+async def list_items(
     query: Optional[str] = None,
     item_type: Optional[ItemType] = None,
     status: Optional[ItemStatus] = None,
     category: Optional[str] = None,
 ) -> list[ItemOut]:
-    clauses = []
-    params: list[str] = []
+    filter_doc: dict = {}
     if query:
-        clauses.append("(title LIKE ? OR description LIKE ? OR location LIKE ? OR category LIKE ?)")
-        term = f"%{query}%"
-        params.extend([term, term, term, term])
+        regex = {"$regex": query, "$options": "i"}
+        filter_doc["$or"] = [
+            {"title": regex},
+            {"description": regex},
+            {"location": regex},
+            {"category": regex},
+        ]
     if item_type:
-        clauses.append("type = ?")
-        params.append(item_type)
+        filter_doc["type"] = item_type
     if status:
-        clauses.append("status = ?")
-        params.append(status)
+        filter_doc["status"] = status
     if category:
-        clauses.append("category = ?")
-        params.append(category)
+        filter_doc["category"] = category
 
-    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
-    with connect() as conn:
-        rows = conn.execute(
-            f"SELECT * FROM items {where} ORDER BY date DESC, created_at DESC, id DESC",
-            params,
-        ).fetchall()
-    return [row_to_item(row) for row in rows]
+    cursor = database.db.items.find(filter_doc).sort([("date", -1), ("created_at", -1)])
+    docs = await cursor.to_list(length=500)
+    return [_doc_to_item(doc) for doc in docs]
 
 
-def get_item(item_id: str) -> Optional[ItemOut]:
-    with connect() as conn:
-        row = conn.execute("SELECT * FROM items WHERE id = ?", (item_id,)).fetchone()
-    return row_to_item(row) if row else None
+async def get_item(item_id: str) -> Optional[ItemOut]:
+    doc = await database.db.items.find_one({"id": item_id})
+    return _doc_to_item(doc) if doc else None
 
 
-def next_item_id(conn: sqlite3.Connection) -> str:
-    rows = conn.execute("SELECT id FROM items WHERE id LIKE 'LF-%'").fetchall()
+async def _next_item_id() -> str:
+    cursor = database.db.items.find({"id": {"$regex": "^LF-"}}, {"id": 1})
+    docs = await cursor.to_list(length=10000)
     highest = 1000
-    for row in rows:
+    for doc in docs:
         try:
-            highest = max(highest, int(row["id"].split("-", 1)[1]))
+            highest = max(highest, int(doc["id"].split("-", 1)[1]))
         except (IndexError, ValueError):
             continue
     return f"LF-{highest + 1}"
 
 
-def infer_status(payload: ItemCreate) -> ItemStatus:
+def _infer_status(payload: ItemCreate) -> ItemStatus:
     if payload.category in SENSITIVE_CATEGORIES:
         return "escalated" if payload.type == "lost" else "secured"
     return "open" if payload.type == "lost" else "secured"
 
 
-def infer_match_score(conn: sqlite3.Connection, payload: ItemCreate) -> float:
+async def _infer_match_score(payload: ItemCreate) -> float:
     opposite = "found" if payload.type == "lost" else "lost"
-    row = conn.execute(
-        "SELECT COUNT(*) AS count FROM items WHERE type = ? AND category = ?",
-        (opposite, payload.category),
-    ).fetchone()
-    count = row["count"] if row else 0
+    count = await database.db.items.count_documents({"type": opposite, "category": payload.category})
     score = 0.34 + min(count, 5) * 0.11
     if payload.brand:
         score += 0.08
@@ -329,122 +271,178 @@ def infer_match_score(conn: sqlite3.Connection, payload: ItemCreate) -> float:
     return round(min(score, 0.96), 2)
 
 
-def create_item(payload: ItemCreate) -> ItemOut:
-    with connect() as conn:
-        item_id = next_item_id(conn)
-        coord_x, coord_z = infer_coordinates(payload.location)
-        status = infer_status(payload)
-        match_score = infer_match_score(conn, payload)
-        conn.execute(
-            """
-            INSERT INTO items
-              (id, type, category, title, description, location, date, status, match_score, coord_x, coord_z, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                item_id,
-                payload.type,
-                payload.category,
-                payload.title,
-                payload.description,
-                payload.location,
-                payload.date,
-                status,
-                match_score,
-                coord_x,
-                coord_z,
-                utc_now(),
-            ),
-        )
-        row = conn.execute("SELECT * FROM items WHERE id = ?", (item_id,)).fetchone()
-    return row_to_item(row)
+async def create_item(payload: ItemCreate) -> ItemOut:
+    item_id = await _next_item_id()
+    coord_x, coord_z = infer_coordinates(payload.location)
+    item_status = _infer_status(payload)
+    match_score = await _infer_match_score(payload)
+    now = utc_now()
+
+    doc = {
+        "id": item_id,
+        "type": payload.type,
+        "category": payload.category,
+        "title": payload.title,
+        "description": payload.description,
+        "location": payload.location,
+        "date": payload.date,
+        "status": item_status,
+        "match_score": match_score,
+        "coord_x": coord_x,
+        "coord_z": coord_z,
+        "created_at": now,
+    }
+    await database.db.items.insert_one(doc)
+    return _doc_to_item(doc)
 
 
-def list_claims() -> list[ClaimOut]:
-    with connect() as conn:
-        rows = conn.execute("SELECT * FROM claims ORDER BY created_at DESC, id DESC").fetchall()
-    return [row_to_claim(row) for row in rows]
+# ---------------------------------------------------------------------------
+# Claim CRUD
+# ---------------------------------------------------------------------------
+async def list_claims() -> list[ClaimOut]:
+    cursor = database.db.claims.find().sort([("created_at", -1)])
+    docs = await cursor.to_list(length=500)
+    return [_doc_to_claim(doc) for doc in docs]
 
 
-def create_claim(payload: ClaimCreate, role: Role) -> Optional[ClaimOut]:
-    with connect() as conn:
-        item = conn.execute("SELECT id, status FROM items WHERE id = ?", (payload.item_id,)).fetchone()
-        if not item:
-            return None
-        conn.execute(
-            "INSERT INTO claims (item_id, stage, claimant_role, proof, created_at) VALUES (?, ?, ?, ?, ?)",
-            (payload.item_id, "submitted", role, payload.proof, utc_now()),
-        )
-        if item["status"] not in {"closed", "escalated"}:
-            conn.execute("UPDATE items SET status = ? WHERE id = ?", ("in_review", payload.item_id))
-        row = conn.execute("SELECT * FROM claims WHERE id = last_insert_rowid()").fetchone()
-    return row_to_claim(row)
-
-
-def update_claim_stage(claim_id: int, stage: ClaimStage) -> Optional[ClaimOut]:
-    with connect() as conn:
-        row = conn.execute("SELECT * FROM claims WHERE id = ?", (claim_id,)).fetchone()
-        if not row:
-            return None
-        conn.execute("UPDATE claims SET stage = ? WHERE id = ?", (stage, claim_id))
-        if stage == "approved":
-            conn.execute("UPDATE items SET status = ? WHERE id = ?", ("closed", row["item_id"]))
-        updated = conn.execute("SELECT * FROM claims WHERE id = ?", (claim_id,)).fetchone()
-    return row_to_claim(updated)
-
-
-def list_messages(item_id: str) -> Optional[list[MessageOut]]:
-    if not get_item(item_id):
+async def create_claim(payload: ClaimCreate, role: Role) -> Optional[ClaimOut]:
+    item = await database.db.items.find_one({"id": payload.item_id})
+    if not item:
         return None
-    with connect() as conn:
-        rows = conn.execute(
-            "SELECT * FROM messages WHERE item_id = ? ORDER BY created_at ASC, id ASC",
-            (item_id,),
-        ).fetchall()
-    return [MessageOut(**dict(row)) for row in rows]
+
+    now = utc_now()
+    result = await database.db.claims.insert_one({
+        "item_id": payload.item_id,
+        "stage": "submitted",
+        "claimant_role": role,
+        "proof": payload.proof,
+        "created_at": now,
+    })
+
+    if item["status"] not in {"closed", "escalated"}:
+        await database.db.items.update_one({"id": payload.item_id}, {"$set": {"status": "in_review"}})
+
+    doc = await database.db.claims.find_one({"_id": result.inserted_id})
+    return _doc_to_claim(doc)
 
 
-def create_message(item_id: str, payload: MessageCreate) -> Optional[MessageOut]:
-    if not get_item(item_id):
+async def update_claim_stage(claim_id: str, stage: ClaimStage) -> Optional[ClaimOut]:
+    try:
+        oid = ObjectId(claim_id)
+    except Exception:
         return None
-    with connect() as conn:
-        conn.execute(
-            "INSERT INTO messages (item_id, sender, text, created_at) VALUES (?, ?, ?, ?)",
-            (item_id, payload.sender, payload.text, utc_now()),
+
+    doc = await database.db.claims.find_one({"_id": oid})
+    if not doc:
+        return None
+
+    await database.db.claims.update_one({"_id": oid}, {"$set": {"stage": stage}})
+
+    if stage == "approved":
+        await database.db.items.update_one({"id": doc["item_id"]}, {"$set": {"status": "closed"}})
+
+    updated = await database.db.claims.find_one({"_id": oid})
+    return _doc_to_claim(updated)
+
+
+# ---------------------------------------------------------------------------
+# Messages / Safe Chat
+# ---------------------------------------------------------------------------
+async def list_messages(item_id: str) -> Optional[list[MessageOut]]:
+    item = await get_item(item_id)
+    if not item:
+        return None
+    cursor = database.db.messages.find({"item_id": item_id}).sort([("created_at", 1)])
+    docs = await cursor.to_list(length=500)
+    return [
+        MessageOut(
+            id=str(doc["_id"]),
+            item_id=doc["item_id"],
+            sender=doc["sender"],
+            text=doc["text"],
+            created_at=doc["created_at"],
         )
-        row = conn.execute("SELECT * FROM messages WHERE id = last_insert_rowid()").fetchone()
-    return MessageOut(**dict(row))
+        for doc in docs
+    ]
 
 
-def create_handover(payload: HandoverCreate) -> Optional[HandoverOut]:
-    if not get_item(payload.item_id):
+async def create_message(item_id: str, payload: MessageCreate) -> Optional[MessageOut]:
+    item = await get_item(item_id)
+    if not item:
+        return None
+    now = utc_now()
+    result = await database.db.messages.insert_one({
+        "item_id": item_id,
+        "sender": payload.sender,
+        "text": payload.text,
+        "created_at": now,
+    })
+    doc = await database.db.messages.find_one({"_id": result.inserted_id})
+    return MessageOut(
+        id=str(doc["_id"]),
+        item_id=doc["item_id"],
+        sender=doc["sender"],
+        text=doc["text"],
+        created_at=doc["created_at"],
+    )
+
+
+# ---------------------------------------------------------------------------
+# Handovers
+# ---------------------------------------------------------------------------
+async def create_handover(payload: HandoverCreate) -> Optional[HandoverOut]:
+    item = await get_item(payload.item_id)
+    if not item:
         return None
     code = "".join(secrets.choice("ABCDEFGHJKLMNPQRSTUVWXYZ23456789") for _ in range(6))
-    with connect() as conn:
-        conn.execute(
-            "INSERT INTO handovers (item_id, date_label, slot, code, created_at) VALUES (?, ?, ?, ?, ?)",
-            (payload.item_id, payload.date_label, payload.slot, code, utc_now()),
-        )
-        row = conn.execute("SELECT * FROM handovers WHERE id = last_insert_rowid()").fetchone()
-    return HandoverOut(**dict(row))
+    now = utc_now()
+    result = await database.db.handovers.insert_one({
+        "item_id": payload.item_id,
+        "date_label": payload.date_label,
+        "slot": payload.slot,
+        "code": code,
+        "created_at": now,
+    })
+    doc = await database.db.handovers.find_one({"_id": result.inserted_id})
+    return HandoverOut(
+        id=str(doc["_id"]),
+        item_id=doc["item_id"],
+        date_label=doc["date_label"],
+        slot=doc["slot"],
+        code=doc["code"],
+        created_at=doc["created_at"],
+    )
 
 
-def create_cctv_request(payload: CctvRequestCreate) -> CctvRequestOut:
-    with connect() as conn:
-        conn.execute(
-            """
-            INSERT INTO cctv_requests (location, item_title, time_window, status, created_at)
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            (payload.location, payload.itemTitle, payload.timeWindow, "queued", utc_now()),
-        )
-        row = conn.execute("SELECT * FROM cctv_requests WHERE id = last_insert_rowid()").fetchone()
-    return CctvRequestOut(**dict(row))
+# ---------------------------------------------------------------------------
+# CCTV Requests
+# ---------------------------------------------------------------------------
+async def create_cctv_request(payload: CctvRequestCreate) -> CctvRequestOut:
+    now = utc_now()
+    result = await database.db.cctv_requests.insert_one({
+        "location": payload.location,
+        "item_title": payload.itemTitle,
+        "time_window": payload.timeWindow,
+        "status": "queued",
+        "created_at": now,
+    })
+    doc = await database.db.cctv_requests.find_one({"_id": result.inserted_id})
+    return CctvRequestOut(
+        id=str(doc["_id"]),
+        location=doc["location"],
+        item_title=doc.get("item_title"),
+        time_window=doc.get("time_window"),
+        status=doc["status"],
+        created_at=doc["created_at"],
+    )
 
 
-def campus_map() -> CampusMapOut:
-    items = list_items()
-    counts = {zone["id"]: 0 for zone in ZONE_DEFS}
+# ---------------------------------------------------------------------------
+# Campus Map
+# ---------------------------------------------------------------------------
+async def campus_map() -> CampusMapOut:
+    items = await list_items()
+    counts: dict[str, int] = {zone["id"]: 0 for zone in ZONE_DEFS}
     pins: list[CampusPin] = []
 
     for item in items:
@@ -482,26 +480,37 @@ def campus_map() -> CampusMapOut:
     return CampusMapOut(zones=zones, paths=paths, pins=pins)
 
 
-def analytics_summary() -> dict[str, object]:
-    with connect() as conn:
-        total_items = conn.execute("SELECT COUNT(*) AS count FROM items").fetchone()["count"]
-        open_items = conn.execute("SELECT COUNT(*) AS count FROM items WHERE status = 'open'").fetchone()["count"]
-        secured_items = conn.execute("SELECT COUNT(*) AS count FROM items WHERE status = 'secured'").fetchone()["count"]
-        active_claims = conn.execute("SELECT COUNT(*) AS count FROM claims WHERE stage != 'approved'").fetchone()["count"]
-        escalations = conn.execute("SELECT COUNT(*) AS count FROM items WHERE status = 'escalated'").fetchone()["count"]
-        rows = conn.execute(
-            "SELECT category, COUNT(*) AS count FROM items GROUP BY category ORDER BY count DESC LIMIT 8"
-        ).fetchall()
+# ---------------------------------------------------------------------------
+# Analytics
+# ---------------------------------------------------------------------------
+async def analytics_summary() -> dict[str, object]:
+    total_items = await database.db.items.count_documents({})
+    open_items = await database.db.items.count_documents({"status": "open"})
+    secured_items = await database.db.items.count_documents({"status": "secured"})
+    active_claims = await database.db.claims.count_documents({"stage": {"$ne": "approved"}})
+    escalations = await database.db.items.count_documents({"status": "escalated"})
+
+    pipeline = [
+        {"$group": {"_id": "$category", "count": {"$sum": 1}}},
+        {"$sort": {"count": -1}},
+        {"$limit": 8},
+    ]
+    cursor = database.db.items.aggregate(pipeline)
+    cat_docs = await cursor.to_list(length=8)
+
     return {
         "total_items": total_items,
         "open_items": open_items,
         "secured_items": secured_items,
         "active_claims": active_claims,
         "escalations": escalations,
-        "by_category": [{"category": row["category"], "count": row["count"]} for row in rows],
+        "by_category": [{"category": doc["_id"], "count": doc["count"]} for doc in cat_docs],
     }
 
 
+# ---------------------------------------------------------------------------
+# Password hashing
+# ---------------------------------------------------------------------------
 def hash_password(password: str) -> str:
     return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
@@ -513,7 +522,10 @@ def verify_password(password: str, hashed_password: str) -> bool:
         return False
 
 
-def create_access_token(user_id: int, email: str, role: str, expires_delta: Optional[timedelta] = None) -> str:
+# ---------------------------------------------------------------------------
+# JWT tokens
+# ---------------------------------------------------------------------------
+def create_access_token(user_id: str, email: str, role: str, expires_delta: Optional[timedelta] = None) -> str:
     expire = datetime.now(timezone.utc) + (expires_delta or timedelta(days=7))
     payload = {
         "sub": str(user_id),
@@ -532,43 +544,55 @@ def decode_access_token(token: str) -> dict | None:
         return None
 
 
-def create_user(email: str, password_hash: str, role: str) -> UserOut:
+# ---------------------------------------------------------------------------
+# User CRUD
+# ---------------------------------------------------------------------------
+async def create_user(email: str, password_hash: str, role: str) -> UserOut:
     now = utc_now()
     clean_email = email.strip().lower()
-    with connect() as conn:
-        cursor = conn.execute(
-            """
-            INSERT INTO users (email, password_hash, role, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            (clean_email, password_hash, role, now, now),
-        )
-        user_id = cursor.lastrowid
-        return UserOut(
-            id=user_id,
-            email=clean_email,
-            role=role,
-            created_at=now,
-            updated_at=now,
-        )
+    result = await database.db.users.insert_one({
+        "email": clean_email,
+        "password_hash": password_hash,
+        "role": role,
+        "created_at": now,
+        "updated_at": now,
+    })
+    return UserOut(
+        id=str(result.inserted_id),
+        email=clean_email,
+        role=role,
+        created_at=now,
+        updated_at=now,
+    )
 
 
-def get_user_by_email(email: str) -> sqlite3.Row | None:
+async def get_user_by_email(email: str) -> dict | None:
     clean_email = email.strip().lower()
-    with connect() as conn:
-        return conn.execute("SELECT * FROM users WHERE email = ?", (clean_email,)).fetchone()
+    doc = await database.db.users.find_one({"email": clean_email})
+    if doc is None:
+        return None
+    return {
+        "id": str(doc["_id"]),
+        "email": doc["email"],
+        "password_hash": doc["password_hash"],
+        "role": doc["role"],
+        "created_at": doc["created_at"],
+        "updated_at": doc["updated_at"],
+    }
 
 
-def get_user_by_id(user_id: int) -> UserOut | None:
-    with connect() as conn:
-        row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
-        if row is None:
-            return None
-        return UserOut(
-            id=row["id"],
-            email=row["email"],
-            role=row["role"],
-            created_at=row["created_at"],
-            updated_at=row["updated_at"],
-        )
-
+async def get_user_by_id(user_id: str) -> UserOut | None:
+    try:
+        oid = ObjectId(user_id)
+    except Exception:
+        return None
+    doc = await database.db.users.find_one({"_id": oid})
+    if doc is None:
+        return None
+    return UserOut(
+        id=str(doc["_id"]),
+        email=doc["email"],
+        role=doc["role"],
+        created_at=doc["created_at"],
+        updated_at=doc["updated_at"],
+    )
