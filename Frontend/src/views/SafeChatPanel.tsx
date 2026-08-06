@@ -65,7 +65,7 @@ export default function SafeChatPanel({ item, onClose }: { item: Item | null; on
               animate={{ x: 0 }}
               exit={{ x: '100%' }}
               transition={SPRING}
-              className="glass fixed right-0 top-0 z-50 flex h-[100dvh] w-full max-w-md flex-col shadow-float"
+              className="glass fixed right-0 top-0 z-50 flex h-[100dvh] w-full max-w-2xl flex-col shadow-float"
             >
               {/* Top bar — item thumbnail, title, status badge, anonymised user */}
               <header className="flex shrink-0 flex-col gap-md border-b border-line-soft px-xl py-lg">

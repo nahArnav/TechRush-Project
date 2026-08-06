@@ -1,4 +1,4 @@
-import type { Item, Claim, Role, ItemType, ItemStatus } from './types'
+import type { Item, Claim, Role, ItemType, ItemStatus, ReportSuggestion } from './types'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 
@@ -184,5 +184,19 @@ export async function fetchMapData() {
 export async function fetchUserActivity(): Promise<any[]> {
   const res = await fetch(`${API_BASE_URL}/v1/activity`, { headers: getHeaders() })
   if (!res.ok) return []
+  return res.json()
+}
+
+export async function suggestReportDetails(payload: {
+  source: 'photo' | 'camera' | 'microphone' | 'text'
+  notes?: string
+  location?: string
+}): Promise<ReportSuggestion> {
+  const res = await fetch(`${API_BASE_URL}/v1/ai/report-details`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) throw new Error('Failed to analyze report details')
   return res.json()
 }

@@ -194,7 +194,7 @@ export function NeoButton({
       whileTap={disabled ? undefined : PRESS}
       transition={SPRING}
       disabled={disabled}
-      className={`inline-flex cursor-pointer items-center justify-center gap-md rounded-neo-full font-medium whitespace-nowrap transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${uppercase ? 'tracking-widest uppercase' : ''} ${VARIANT[variant]} ${SIZE[size]} ${className}`}
+      className={`inline-flex min-w-0 cursor-pointer items-center justify-center gap-md rounded-neo-full font-medium leading-tight transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${uppercase ? 'tracking-widest uppercase' : ''} ${VARIANT[variant]} ${SIZE[size]} ${className}`}
       {...(props as any)}
     >
       {iconStart}
@@ -384,7 +384,7 @@ export function NeoModal({
               transition={SPRING}
               /* Desktop: 70% of the viewport, never narrower than 680px, so form
                  grids stay two-column instead of compressing. Mobile: full bleed. */
-              className={`relative flex h-full w-full flex-col overflow-hidden rounded-none shadow-float sm:h-full sm:w-[70vw] sm:min-w-[680px] sm:max-w-6xl sm:rounded-neo-lg ${dark ? 'glass-dark border-white/40 text-on-dark' : 'glass text-ink'}`}
+              className={`relative flex h-full w-full flex-col overflow-hidden rounded-none shadow-float sm:h-[92dvh] sm:w-[92vw] sm:min-w-[720px] sm:max-w-7xl sm:rounded-neo-lg ${dark ? 'glass-dark border-white/40 text-on-dark' : 'glass text-ink'}`}
             >
               <header className="flex shrink-0 items-center justify-between gap-lg border-b border-line-soft px-xl py-lg sm:px-2xl">
                 <div className="flex items-center gap-md">
@@ -407,7 +407,7 @@ export function NeoModal({
                 <NeoIconButton size="sm" dark={dark} icon={<X size={18} />} onClick={onClose} aria-label="Close" />
               </header>
 
-              <div className={`no-scrollbar flex-1 overflow-y-auto px-xl py-xl sm:px-2xl ${dark ? 'text-on-dark-muted' : 'text-ink-soft'}`}>
+              <div className={`no-scrollbar flex w-full flex-1 overflow-y-auto px-xl py-xl sm:px-2xl ${dark ? 'text-on-dark-muted' : 'text-ink-soft'}`}>
                 {children}
               </div>
 
@@ -442,7 +442,7 @@ export function NeoModal({
             animate={{ scale: 1, y: 0, opacity: 1 }}
             exit={{ scale: 0.95, opacity: 0 }}
             transition={SPRING}
-            className={`relative w-full max-w-md rounded-neo-lg p-2xl shadow-float ${dark ? 'glass-dark border-2 border-white text-on-dark' : 'glass shadow-extrude text-ink'}`}
+            className={`relative w-full max-w-2xl rounded-neo-lg p-2xl shadow-float ${dark ? 'glass-dark border-2 border-white text-on-dark' : 'glass shadow-extrude text-ink'}`}
           >
             {icon ? (
               <div className="mb-lg flex justify-center">

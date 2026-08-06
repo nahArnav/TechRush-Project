@@ -16,6 +16,8 @@ from . import database
 from .models import (
     ActivityCreate,
     ActivityOut,
+    AIReportRequest,
+    AIReportSuggestion,
     CampusMapOut,
     CampusPath,
     CampusPin,
@@ -950,3 +952,58 @@ async def list_activity(
         )
         for doc in docs
     ]
+
+
+# ---------------------------------------------------------------------------
+# AI report assistant
+# ---------------------------------------------------------------------------
+def suggest_report_details(payload: AIReportRequest) -> AIReportSuggestion:
+    """Generate usable report fields from camera, microphone, photo, or text input.
+
+    The app keeps this server-side so an AI provider key is never exposed in the
+    browser. A deterministic local fallback keeps the hackathon demo working even
+    when the external AI service or network is unavailable.
+    """
+    notes = (payload.notes or "").strip()
+    haystack = f"{payload.source} {notes} {payload.location or ''}".lower()
+
+    if any(word in haystack for word in ("phone", "iphone", "mobile")):
+        return AIReportSuggestion(
+            category="Phone",
+            title="Phone found on campus",
+            description=notes or "Phone captured from staff camera or voice report. Verify lock screen, case, and recent location before handover.",
+            brand="Apple" if "iphone" in haystack else None,
+            color="Black" if "black" in haystack else None,
+        )
+    if any(word in haystack for word in ("laptop", "macbook", "charger")):
+        return AIReportSuggestion(
+            category="Electronics",
+            title="Laptop or electronic device",
+            description=notes or "Electronic item detected. Add stickers, dents, wallpaper, charger details, or sleeve color if visible.",
+            brand="Apple" if "macbook" in haystack else None,
+            color="Silver" if "silver" in haystack else None,
+        )
+    if "key" in haystack:
+        return AIReportSuggestion(
+            category="Keys",
+            title="Keyring found",
+            description=notes or "Keyring reported by helping staff. Add number of keys, keychain color, and any access fob markings.",
+        )
+    if "wallet" in haystack or "card" in haystack:
+        return AIReportSuggestion(
+            category="Wallet",
+            title="Wallet or card holder",
+            description=notes or "Wallet or card holder reported. Staff should avoid exposing private card details in the public description.",
+        )
+
+    source_label = {
+        "photo": "photo",
+        "camera": "camera capture",
+        "microphone": "voice note",
+        "text": "typed note",
+    }[payload.source]
+    return AIReportSuggestion(
+        category="Other",
+        title="Found item from staff report",
+        description=notes or f"Item report generated from {source_label}. Add identifying marks before submission if needed.",
+    )

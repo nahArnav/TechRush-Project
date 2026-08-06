@@ -280,3 +280,19 @@ class ActivityOut(BaseModel):
     metadata: Optional[dict] = None
     created_at: str
 
+
+# ---------------------------------------------------------------------------
+# AI report assistant models
+# ---------------------------------------------------------------------------
+class AIReportRequest(BaseModel):
+    source: Literal["photo", "camera", "microphone", "text"]
+    notes: Optional[str] = Field(default=None, max_length=1200)
+    location: Optional[str] = Field(default=None, max_length=180)
+
+
+class AIReportSuggestion(BaseModel):
+    category: str
+    title: str
+    description: str
+    brand: Optional[str] = None
+    color: Optional[str] = None

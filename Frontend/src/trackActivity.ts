@@ -34,6 +34,8 @@ export type ActivityAction =
   | 'item_viewed'
   | 'photo_analyzed'
   | 'photo_attached'
+  | 'camera_report_drafted'
+  | 'microphone_report_drafted'
 
 export function trackActivity(
   action: ActivityAction,

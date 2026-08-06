@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Eye, Lock, MapPin, MessageSquare, Sparkles } from 'lucide-react'
 import { GlassCard, NeoButton, NeoPill, useTheme } from '../neo'
-import { emojiFor, isCampusId, timelineFor, type Claim, type Item } from '../types'
+import { emojiFor, isCampusId, type Claim, type Item } from '../types'
 import WorkflowTracker from './WorkflowTracker'
 import { trackActivity } from '../trackActivity'
 
@@ -33,8 +33,6 @@ export default function NeoCard({
   const aiDark = ai && theme === 'dark'
   const [confirmed, setConfirmed] = useState(false)
   const [confirms, setConfirms] = useState(3)
-  const timeline = timelineFor(item)
-
   // Automatic ID match (Feature 22): locked, blurred, owner-notified.
   if (isCampusId(item.category)) {
     return (
@@ -94,22 +92,6 @@ export default function NeoCard({
       </div>
 
       <p className={`text-xs leading-relaxed ${muted}`}>{item.description}</p>
-
-      {/* Movement timeline (Feature 19) */}
-      <div className="flex flex-col gap-sm">
-        <p className={`text-[10px] font-black uppercase tracking-[0.2em] ${muted}`}>Last seen</p>
-        <ol className="flex flex-col gap-sm">
-          {timeline.map((ev, i) => (
-            <li key={i} className="flex items-center gap-md">
-              <span
-                className={`size-2 shrink-0 rounded-neo-full ${ai ? 'bg-ai-ink/70' : 'bg-ink/70'} ${i === timeline.length - 1 ? 'animate-ring' : ''}`}
-              />
-              <span className={`text-[11px] font-bold tabular-nums ${shell}`}>{ev.time}</span>
-              <span className={`text-[11px] ${muted}`}>{ev.place}</span>
-            </li>
-          ))}
-        </ol>
-      </div>
 
       {claim ? (
         <div className="flex flex-col gap-md">

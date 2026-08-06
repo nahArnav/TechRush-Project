@@ -120,7 +120,7 @@ export default function HandoverModal({ item, onClose }: { item: Item | null; on
               <p className="flex items-center gap-sm text-[11px] font-black uppercase tracking-[0.2em] text-ink">
                 <MapPin size={13} /> Safe handover zones
               </p>
-              <div className="grid gap-sm">
+              <div className="grid gap-md md:grid-cols-3">
                 {ZONES.map((z) => {
                   const on = zone === z.id
                   return (
@@ -128,7 +128,7 @@ export default function HandoverModal({ item, onClose }: { item: Item | null; on
                       key={z.id}
                       type="button"
                       onClick={() => setZone(z.id)}
-                      className={`flex items-center gap-lg rounded-neo bg-plate p-lg text-left transition-shadow ${on ? 'shadow-carve' : 'shadow-extrude-sm'}`}
+                      className={`flex min-h-28 flex-col items-start justify-between gap-md rounded-neo bg-plate p-lg text-left transition-shadow ${on ? 'shadow-carve' : 'shadow-extrude-sm'}`}
                     >
                       <span
                         className={`flex size-10 shrink-0 items-center justify-center rounded-neo-full ${on ? 'bg-ink text-on-ink' : 'bg-plate text-ink shadow-extrude-sm'}`}
@@ -139,7 +139,7 @@ export default function HandoverModal({ item, onClose }: { item: Item | null; on
                         <span className="block text-sm font-bold text-ink">{z.label}</span>
                         <span className="block text-xs text-ink-muted">{z.hint}</span>
                       </span>
-                      {on ? <Check size={16} className="ml-auto text-ink" /> : null}
+                      {on ? <Check size={16} className="text-ink" /> : null}
                     </button>
                   )
                 })}

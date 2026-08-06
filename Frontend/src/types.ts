@@ -15,6 +15,14 @@ export type Item = {
   matchScore: number
 }
 
+export type ReportSuggestion = {
+  category: string
+  title: string
+  description: string
+  brand?: string
+  color?: string
+}
+
 export type CategoryStyle = { emoji: string; pill: string }
 
 const raw = data as unknown as {
@@ -97,22 +105,3 @@ export const isSensitive = (category: string) => SENSITIVE_CATEGORIES.includes(c
 // Campus ID cards get the automatic private-match treatment (Feature 22).
 export const ID_CATEGORIES = ['ID Card', 'Government ID']
 export const isCampusId = (category: string) => ID_CATEGORIES.includes(category)
-
-/* ── Movement timeline (Features 19 & 28) ──────────────────────────────────────
- * A short "last seen" trail rendered on each card. Derived deterministically
- * from the item id so the same item always shows the same journey. */
-export type TimelineEvent = { time: string; place: string }
-const PLACES = [
-  'Entered main gate',
-  'Seen in classroom C-204',
-  'Visited the library',
-  'Near the canteen counter',
-  'Sports complex lobby',
-  'Handed to help desk',
-]
-export function timelineFor(item: Item): TimelineEvent[] {
-  const itemId = String(item?.id || 'LF-0000')
-  const seed = itemId.split('').reduce((a, c) => a + c.charCodeAt(0), 0)
-  const times = ['9:00 AM', '10:30 AM', '12:15 PM']
-  return times.map((time, i) => ({ time, place: PLACES[(seed + i) % PLACES.length] }))
-}

@@ -13,6 +13,8 @@ from .database import startup_db, shutdown_db
 from .models import (
     ActivityCreate,
     ActivityOut,
+    AIReportRequest,
+    AIReportSuggestion,
     AnalyticsSummary,
     CampusMapOut,
     ClaimCreate,
@@ -283,9 +285,25 @@ async def log_activity(
 
 @app.get("/v1/activity", response_model=list[ActivityOut])
 async def list_activity(
-    _: Annotated[Role, Depends(require_session)],
+    credentials: Annotated[HTTPAuthorizationCredentials, Depends(security)],
     action: Annotated[Optional[str], Query(max_length=120)] = None,
     limit: int = Query(default=50, ge=1, le=200),
 ) -> list[ActivityOut]:
-    return await store.list_activity(action=action, limit=limit)
+    if credentials is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing bearer token")
+    token_payload = store.decode_access_token(credentials.credentials)
+    user_id = token_payload.get("sub") if token_payload else None
+    if not user_id:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired bearer token")
+    return await store.list_activity(user_id=user_id, action=action, limit=limit)
 
+
+# ---------------------------------------------------------------------------
+# AI report assistant
+# ---------------------------------------------------------------------------
+@app.post("/v1/ai/report-details", response_model=AIReportSuggestion)
+async def suggest_report_details(
+    payload: AIReportRequest,
+    _: Annotated[Role, Depends(require_session)],
+) -> AIReportSuggestion:
+    return store.suggest_report_details(payload)

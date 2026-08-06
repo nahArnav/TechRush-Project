@@ -215,12 +215,6 @@ function AppInner() {
             role={role}
             authRole={authRole}
             userId={userId}
-            onRole={(r) => {
-              setSupportOpen(false)
-              setProfileOpen(false)
-              setRole(r)
-              trackActivity('role_switched', undefined, { role: r })
-            }}
             onProfile={() => {
               setSupportOpen(false)
               setProfileOpen((p) => !p)
@@ -251,7 +245,12 @@ function AppInner() {
           ) : role === 'student' ? (
             <StudentDashboard items={items} claims={claims} onClaim={setClaimItem} onChat={setChatItem} />
           ) : role === 'staff' ? (
-            <StaffDashboard />
+            <StaffDashboard
+              onDraftReport={(prefill) => {
+                setReportPrefill(prefill)
+                setReportOpen(true)
+              }}
+            />
           ) : (
             <Suspense
               fallback={
@@ -262,7 +261,7 @@ function AppInner() {
                 </main>
               }
             >
-              <AdminDashboard items={items} />
+              <AdminDashboard items={items} claims={claims} />
             </Suspense>
           )}
         </div>

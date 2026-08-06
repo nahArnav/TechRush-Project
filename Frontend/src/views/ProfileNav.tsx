@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Bell, LifeBuoy, LogOut, User, UserCheck } from 'lucide-react'
-import { GlassPanel, NeoIconButton, NeoPill, SPRING, ThemeToggle, Tooltip } from '../neo'
+import { GlassPanel, NeoIconButton, SPRING, ThemeToggle, Tooltip } from '../neo'
 import { ROLE_LABELS, type Role } from '../types'
 
 const ALERTS = [
@@ -10,17 +10,10 @@ const ALERTS = [
   { title: 'Saved search alert', body: '“Black wallet” — 2 new found items.' },
 ]
 
-const VISIBLE_ROLES: Record<Role, Role[]> = {
-  student: ['student'],
-  staff: ['student', 'staff'],
-  admin: ['student', 'staff', 'admin'],
-}
-
 export default function ProfileNav({
   role,
   authRole,
   userId,
-  onRole,
   onProfile,
   onSupport,
   onSignOut,
@@ -28,13 +21,11 @@ export default function ProfileNav({
   role: Role
   authRole: Role
   userId?: string
-  onRole: (r: Role) => void
   onProfile: () => void
   onSupport: () => void
   onSignOut: () => void
 }) {
   const [bellOpen, setBellOpen] = useState(false)
-  const tabs = VISIBLE_ROLES[authRole]
 
   return (
     <header className="sticky top-0 z-30 flex flex-wrap items-center justify-between gap-lg px-2xl py-lg">
@@ -57,16 +48,9 @@ export default function ProfileNav({
         ) : null}
       </div>
 
-      {/* Section tabs — only those the signed-in role is permitted to see */}
-      {tabs.length > 1 ? (
-        <div className="glass flex items-center gap-xs rounded-neo-full p-1 shadow-glass">
-          {tabs.map((r) => (
-            <NeoPill key={r} active={role === r} onClick={() => onRole(r)}>
-              {ROLE_LABELS[r]}
-            </NeoPill>
-          ))}
-        </div>
-      ) : null}
+      <div className="glass hidden items-center rounded-neo-full px-lg py-sm text-xs font-black uppercase tracking-widest text-ink shadow-glass sm:flex">
+        {ROLE_LABELS[authRole]}
+      </div>
 
       <div className="flex items-center gap-md">
         <ThemeToggle />
