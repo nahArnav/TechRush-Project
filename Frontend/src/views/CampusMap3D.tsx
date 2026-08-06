@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { MapPin, PlusCircle, Layers, X, Sparkles } from 'lucide-react'
 import { NeoButton } from '../neo'
 import type { Item } from '../types'
