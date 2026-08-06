@@ -107,11 +107,12 @@ export default function LoginPage({
 
         localStorage.setItem('auth_token', token)
         localStorage.setItem('user_email', data.email || email)
+        localStorage.setItem('user_id', data.user_id || data.email || email)
         localStorage.setItem('user_role', userRole)
 
         setIsLoading(false)
         trackActivity(mode === 'register' ? 'register' : 'login', undefined, { email, role: userRole })
-        onSignIn(userRole, displayId, token)
+        onSignIn(userRole, data.user_id || displayId, token)
         return
       }
 

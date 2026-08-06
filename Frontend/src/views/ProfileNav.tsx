@@ -14,6 +14,7 @@ export default function ProfileNav({
   role,
   authRole,
   userId,
+  userDisplayId,
   onProfile,
   onSupport,
   onSignOut,
@@ -21,11 +22,13 @@ export default function ProfileNav({
   role: Role
   authRole: Role
   userId?: string
+  userDisplayId?: string
   onProfile: () => void
   onSupport: () => void
   onSignOut: () => void
 }) {
   const [bellOpen, setBellOpen] = useState(false)
+  const displayUser = formatUserDisplay(userDisplayId || userId)
 
   return (
     <header className="sticky top-0 z-30 flex flex-wrap items-center justify-between gap-lg px-2xl py-lg">
@@ -39,11 +42,11 @@ export default function ProfileNav({
           </span>
         </div>
 
-        {userId ? (
+        {displayUser ? (
           <div className="glass hidden items-center gap-xs rounded-neo-full px-lg py-sm text-xs font-bold text-ink shadow-glass sm:flex">
             <UserCheck size={14} className="text-ink-muted" />
-            <span className="text-[10px] uppercase tracking-widest text-ink-muted">ID:</span>
-            <span className="font-black tracking-wide">{userId}</span>
+            <span className="text-[10px] uppercase tracking-widest text-ink-muted">User:</span>
+            <span className="max-w-56 truncate font-black tracking-wide">{displayUser}</span>
           </div>
         ) : null}
       </div>
@@ -106,4 +109,11 @@ export default function ProfileNav({
       </div>
     </header>
   )
+}
+
+function formatUserDisplay(value?: string) {
+  const clean = value?.trim()
+  if (!clean) return ''
+  if (/^[a-f\d]{24}$/i.test(clean)) return 'Signed in user'
+  return clean
 }

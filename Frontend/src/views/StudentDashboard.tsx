@@ -16,6 +16,7 @@ function Lane({
   claims,
   onClaim,
   onChat,
+  currentUserId,
   dark = false,
 }: {
   title: string
@@ -24,6 +25,7 @@ function Lane({
   claims: Claim[]
   onClaim: (i: Item) => void
   onChat: (i: Item) => void
+  currentUserId?: string
   dark?: boolean
 }) {
   if (!items.length) return null
@@ -39,6 +41,7 @@ function Lane({
             claim={claims.find((c) => c.itemId === item.id)}
             onClaim={onClaim}
             onChat={onChat}
+            currentUserId={currentUserId}
           />
         ))}
       </div>
@@ -51,11 +54,13 @@ export default function StudentDashboard({
   claims = [],
   onClaim,
   onChat,
+  currentUserId,
 }: {
   items?: Item[]
   claims?: Claim[]
   onClaim: (item: Item) => void
   onChat: (item: Item) => void
+  currentUserId?: string
 }) {
   const [query, setQuery] = useState('')
   const { push } = useToast()
@@ -110,12 +115,12 @@ export default function StudentDashboard({
             theme-aware soft-light (light) / dark-glass (dark) AI surface. */}
         {aiMatches.length ? (
           <GlassPanel className="p-2xl shadow-float">
-            <Lane title="AI Matches" items={aiMatches} variant="ai" claims={claims} onClaim={onClaim} onChat={onChat} />
+            <Lane title="AI Matches" items={aiMatches} variant="ai" claims={claims} onClaim={onClaim} onChat={onChat} currentUserId={currentUserId} />
           </GlassPanel>
         ) : null}
 
-        <Lane title="Recently found on campus" items={found} claims={claims} onClaim={onClaim} onChat={onChat} />
-        <Lane title="Reported lost" items={lost} claims={claims} onClaim={onClaim} onChat={onChat} />
+        <Lane title="Recently found on campus" items={found} claims={claims} onClaim={onClaim} onChat={onChat} currentUserId={currentUserId} />
+        <Lane title="Reported lost" items={lost} claims={claims} onClaim={onClaim} onChat={onChat} currentUserId={currentUserId} />
 
         {!results.length ? (
           <GlassPanel className="p-3xl text-center shadow-extrude">

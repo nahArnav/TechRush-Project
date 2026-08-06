@@ -7,10 +7,12 @@ import WorkflowTracker from './WorkflowTracker'
 
 export default function ProfilePage({
   userId,
+  userDisplayId,
   role,
   onBack,
 }: {
   userId: string
+  userDisplayId?: string
   role: Role
   onBack: () => void
 }) {
@@ -53,6 +55,8 @@ export default function ProfilePage({
     month: 'short',
     year: 'numeric',
   })
+  const displayName = formatProfileDisplay(userDisplayId || userId)
+  const avatarInitial = displayName.charAt(0).toUpperCase() || 'U'
 
   return (
     <main className="flex-1 px-2xl py-3xl pb-32">
@@ -68,11 +72,11 @@ export default function ProfilePage({
         <GlassCard className="flex flex-col gap-xl p-2xl sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-xl">
             <span className="flex size-16 shrink-0 items-center justify-center rounded-neo-full bg-ink text-2xl font-black uppercase text-on-ink shadow-float">
-              {userId.charAt(0).toUpperCase()}
+              {avatarInitial}
             </span>
             <div className="flex flex-col gap-xs">
               <div className="flex flex-wrap items-center gap-sm">
-                <h1 className="text-2xl font-black tracking-tight text-ink">{userId}</h1>
+                <h1 className="break-all text-2xl font-black tracking-tight text-ink">{displayName}</h1>
                 <span className="flex items-center gap-xs rounded-neo-full bg-plate px-md py-xs text-[10px] font-bold uppercase tracking-widest text-ink shadow-extrude-sm">
                   <UserCheck size={12} /> {ROLE_LABELS[role]}
                 </span>
@@ -158,4 +162,11 @@ export default function ProfilePage({
       </div>
     </main>
   )
+}
+
+function formatProfileDisplay(value?: string) {
+  const clean = value?.trim()
+  if (!clean) return 'Signed in user'
+  if (/^[a-f\d]{24}$/i.test(clean)) return 'Signed in user'
+  return clean
 }

@@ -13,6 +13,9 @@ export type Item = {
   date: string
   status: ItemStatus
   matchScore: number
+  userId?: string
+  sightingCount: number
+  sightedByUserIds?: string[]
 }
 
 export type ReportSuggestion = {
