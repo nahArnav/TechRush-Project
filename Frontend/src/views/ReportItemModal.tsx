@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { AlertTriangle, Camera, Check, Sparkles, UploadCloud } from 'lucide-react'
 import { NeoButton, NeoInput, NeoModal, NeoSelect, NeoToggle } from '../neo'
 import { CATEGORY_NAMES, ITEMS, isSensitive } from '../types'
+import { trackActivity } from '../trackActivity'
 
 /*
  * Smart reporting flow (Features 11, 1, 21, 13, 16). Photo → simulated AI fills
@@ -104,12 +105,20 @@ export default function ReportItemModal({
     setCategory('Electronics')
     setBrand('Apple')
     setTitle('Silver laptop')
+    trackActivity('photo_analyzed')
   }
 
   const submit = () => {
-    if (sensitive) return setWarning('sensitive')
+    if (sensitive) {
+      trackActivity('report_submitted', undefined, { category, title, status: 'warning_sensitive' })
+      return setWarning('sensitive')
+    }
     const dup = ITEMS.some((i) => i.category === category && i.type === 'found')
-    if (dup) return setWarning('duplicate')
+    if (dup) {
+      trackActivity('report_submitted', undefined, { category, title, status: 'warning_duplicate' })
+      return setWarning('duplicate')
+    }
+    trackActivity('report_submitted', undefined, { category, title, building, floor, anonymous })
     setSubmitted(true)
   }
 

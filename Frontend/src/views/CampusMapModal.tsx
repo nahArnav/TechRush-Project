@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { Compass, Layers, MapPin, PackageSearch, PlusCircle, X } from 'lucide-react'
 import { NeoButton, NeoModal, NeoPill, SPRING } from '../neo'
 import type { ReportPrefill } from './ReportItemModal'
+import { trackActivity } from '../trackActivity'
 
 /*
  * Interactive Campus Map (Task 2). A full-width dark-glass spatial plan built to
@@ -115,6 +116,7 @@ export default function CampusMapModal({
     setSelected(b)
     setFloor(b.floors?.[0] ?? 'Ground')
     setActivePin(null)
+    trackActivity('map_building_selected', undefined, { building: b.label })
   }
 
   const contextMenu = (e: React.MouseEvent, b: Block) => {
@@ -138,6 +140,7 @@ export default function CampusMapModal({
       floor: menu.block.floors?.[0] ?? 'Ground',
       coordinates: `Map ${menu.cx}, ${menu.cy}`,
     })
+    trackActivity('map_report_here', undefined, { building: menu.block.label, type })
     setMenu(null)
   }
 

@@ -3,6 +3,7 @@ import { Bookmark, Search } from 'lucide-react'
 import { GlassPanel, LaneTitle, NeoIconButton, NeoInput, Tooltip, useToast } from '../neo'
 import { ITEMS, type Claim, type Item } from '../types'
 import NeoCard from './NeoCard'
+import { trackActivity } from '../trackActivity'
 
 /*
  * Dynamic Discovery feed (Module 2). No grids — horizontal scrolling lanes like
@@ -69,11 +70,13 @@ export default function StudentDashboard({
   const found = results.filter((i) => i.type === 'found')
   const lost = results.filter((i) => i.type === 'lost')
 
-  const saveSearch = () =>
+  const saveSearch = () => {
+    trackActivity('save_search', undefined, { query })
     push({
       title: 'Search saved',
       description: query ? `We’ll alert you about “${query}”.` : 'We’ll alert you about new matches.',
     })
+  }
 
   return (
     <main className="flex-1 px-2xl py-3xl pb-32">
@@ -88,7 +91,10 @@ export default function StudentDashboard({
               className="min-w-64 flex-1"
               icon={<Search size={18} />}
               value={query}
-              onChange={setQuery}
+              onChange={(v) => {
+                setQuery(v)
+                if (v.trim().length >= 3) trackActivity('search', undefined, { query: v })
+              }}
               placeholder="Search 'Black wallet lost near the canteen'"
             />
             <Tooltip label="Save this search">

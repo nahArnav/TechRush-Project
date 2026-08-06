@@ -3,6 +3,7 @@ import { Eye, Lock, MapPin, MessageSquare, Sparkles } from 'lucide-react'
 import { GlassCard, NeoButton, NeoPill, useTheme } from '../neo'
 import { emojiFor, isCampusId, timelineFor, type Claim, type Item } from '../types'
 import WorkflowTracker from './WorkflowTracker'
+import { trackActivity } from '../trackActivity'
 
 /*
  * The discovery unit. Three states, all strictly grayscale:
@@ -115,7 +116,7 @@ export default function NeoCard({
           <div className={`rounded-neo p-md ${ai ? 'border border-ai-border bg-ai-surface' : 'bg-plate shadow-carve-sm'}`}>
             <WorkflowTracker stage={claim.stage} dark={aiDark} />
           </div>
-          <NeoPill iconStart={<MessageSquare size={13} />} onClick={() => onChat?.(item)}>
+          <NeoPill iconStart={<MessageSquare size={13} />} onClick={() => { trackActivity('chat_opened', item.id); onChat?.(item) }}>
             Safe chat &amp; handover
           </NeoPill>
         </div>
@@ -126,13 +127,15 @@ export default function NeoCard({
             active={confirmed}
             iconStart={<Eye size={13} />}
             onClick={() => {
-              setConfirmed((c) => !c)
+              const nextState = !confirmed
+              setConfirmed(nextState)
               setConfirms((n) => (confirmed ? n - 1 : n + 1))
+              trackActivity('i_saw_this', item.id, { title: item.title, confirmed: nextState })
             }}
           >
             I saw this · {confirms}
           </NeoPill>
-          <NeoButton variant={aiDark ? 'dark' : 'raised'} size="sm" onClick={() => onClaim(item)}>
+          <NeoButton variant={aiDark ? 'dark' : 'raised'} size="sm" onClick={() => { trackActivity('claim_opened', item.id); onClaim(item) }}>
             Claim
           </NeoButton>
         </div>

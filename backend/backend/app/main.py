@@ -11,6 +11,8 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from . import store
 from .database import startup_db, shutdown_db
 from .models import (
+    ActivityCreate,
+    ActivityOut,
     AnalyticsSummary,
     CampusMapOut,
     ClaimCreate,
@@ -255,3 +257,31 @@ async def campus_map() -> CampusMapOut:
 @app.get("/v1/analytics/summary", response_model=AnalyticsSummary)
 async def analytics_summary(_: Annotated[Role, Depends(require_session)]) -> dict[str, object]:
     return await store.analytics_summary()
+
+
+# ---------------------------------------------------------------------------
+# Activity Tracking
+# ---------------------------------------------------------------------------
+@app.post("/v1/activity", response_model=ActivityOut, status_code=status.HTTP_201_CREATED)
+async def log_activity(
+    payload: ActivityCreate,
+    credentials: Annotated[Optional[HTTPAuthorizationCredentials], Depends(security)] = None,
+) -> ActivityOut:
+    """Record a user interaction. Auth is optional — unauthenticated events are
+    stored with user_id=None so the frontend can fire-and-forget."""
+    user_id: str | None = None
+    if credentials:
+        token_payload = store.decode_access_token(credentials.credentials)
+        if token_payload and "sub" in token_payload:
+            user_id = token_payload["sub"]
+    return await store.log_activity(payload, user_id=user_id)
+
+
+@app.get("/v1/activity", response_model=list[ActivityOut])
+async def list_activity(
+    _: Annotated[Role, Depends(require_session)],
+    action: Annotated[Optional[str], Query(max_length=120)] = None,
+    limit: int = Query(default=50, ge=1, le=200),
+) -> list[ActivityOut]:
+    return await store.list_activity(action=action, limit=limit)
+

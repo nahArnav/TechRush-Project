@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
+import { trackActivity } from './trackActivity'
 import { Home, Map, PlusCircle } from 'lucide-react'
 import { ThemeProvider, ToastProvider, useToast } from './neo'
 import { type Claim, type Item, type Role } from './types'
@@ -68,6 +69,7 @@ function AppInner() {
   const submitClaim = (item: Item) => {
     setClaims((prev) => (prev.some((c) => c.itemId === item.id) ? prev : [...prev, { itemId: item.id, stage: 'submitted' }]))
     setClaimItem(null)
+    trackActivity('claim_submitted', item.id, { category: item.category })
     push({ title: 'Claim submitted', description: 'Verification is under review.' })
   }
 
@@ -102,6 +104,7 @@ function AppInner() {
             setRole(r)
             setUserId(id)
             setSignedIn(true)
+            trackActivity('login', undefined, { role: r })
           }}
         />,
       )
@@ -118,6 +121,7 @@ function AppInner() {
       onClick: () => {
         setSupportOpen(false)
         window.scrollTo({ top: 0, behavior: 'smooth' })
+        trackActivity('page_view', undefined, { page: 'home' })
       },
       active: !supportOpen,
     },
@@ -128,9 +132,10 @@ function AppInner() {
       onClick: () => {
         setReportPrefill(null)
         setReportOpen(true)
+        trackActivity('report_opened')
       },
     },
-    { id: 'map', label: 'Campus map', icon: <Map size={20} />, onClick: () => setMapOpen(true) },
+    { id: 'map', label: 'Campus map', icon: <Map size={20} />, onClick: () => { setMapOpen(true); trackActivity('map_opened') } },
   ]
 
   return (
@@ -147,11 +152,13 @@ function AppInner() {
           onRole={(r) => {
             setSupportOpen(false)
             setRole(r)
+            trackActivity('role_switched', undefined, { role: r })
           }}
           offline={offline}
           onToggleOffline={() => setOffline((o) => !o)}
-          onSupport={() => setSupportOpen((s) => !s)}
+          onSupport={() => { setSupportOpen((s) => !s); trackActivity('support_opened') }}
           onSignOut={() => {
+            trackActivity('logout')
             localStorage.removeItem('auth_token')
             localStorage.removeItem('user_email')
             localStorage.removeItem('user_role')

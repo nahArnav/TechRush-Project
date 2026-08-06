@@ -259,3 +259,24 @@ class TokenResponse(BaseModel):
     user_id: str
     email: str
     role: Role
+
+
+# ---------------------------------------------------------------------------
+# Activity Tracking models
+# ---------------------------------------------------------------------------
+class ActivityCreate(BaseModel):
+    action: str = Field(min_length=1, max_length=120)
+    item_id: Optional[str] = Field(default=None, max_length=40)
+    metadata: Optional[dict] = None
+
+
+class ActivityOut(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, arbitrary_types_allowed=True)
+
+    id: str
+    user_id: Optional[str] = None
+    action: str
+    item_id: Optional[str] = None
+    metadata: Optional[dict] = None
+    created_at: str
+

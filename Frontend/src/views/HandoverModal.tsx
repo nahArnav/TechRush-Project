@@ -3,6 +3,7 @@ import { motion } from 'framer-motion'
 import { Building2, Check, Clock, Landmark, MapPin, QrCode, ShieldCheck } from 'lucide-react'
 import { NeoButton, NeoModal, NeoPill, SPRING } from '../neo'
 import type { Item } from '../types'
+import { trackActivity } from '../trackActivity'
 
 /*
  * Handover Verification (Features 7 & 15). A guided, safety-first exchange: pick a
@@ -90,7 +91,11 @@ export default function HandoverModal({ item, onClose }: { item: Item | null; on
   const [code, setCode] = useState<string | null>(null)
 
   const confirmed = code !== null
-  const reveal = () => setCode(String(Math.floor(100000 + Math.random() * 900000)))
+  const reveal = () => {
+    const generated = String(Math.floor(100000 + Math.random() * 900000))
+    setCode(generated)
+    trackActivity('handover_code_generated', item?.id, { zone, slot, role: side })
+  }
   const close = () => {
     onClose()
     // reset after the exit animation so the next open starts clean
@@ -180,7 +185,10 @@ export default function HandoverModal({ item, onClose }: { item: Item | null; on
                   className="w-full"
                   disabled={entered.length < PIN_LENGTH}
                   iconStart={<Check size={15} />}
-                  onClick={() => setCode(entered)}
+                  onClick={() => {
+                    setCode(entered)
+                    trackActivity('handover_code_verified', item?.id, { zone, slot, role: side })
+                  }}
                 >
                   Verify code
                 </NeoButton>
@@ -209,7 +217,10 @@ export default function HandoverModal({ item, onClose }: { item: Item | null; on
             </p>
             <button
               type="button"
-              onClick={close}
+              onClick={() => {
+                trackActivity('handover_confirmed', item?.id, { zone, slot })
+                close()
+              }}
               className="mt-sm flex w-full items-center justify-center gap-sm rounded-neo-full bg-status-found px-xl py-md text-sm font-bold text-white shadow-float transition-opacity hover:opacity-90"
             >
               <Check size={15} /> Confirm match &amp; close case

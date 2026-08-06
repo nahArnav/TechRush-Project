@@ -3,6 +3,7 @@ import { ArrowLeft, BadgeCheck, Eye, EyeOff, KeyRound, Lock, Shield, User, UserP
 import { GlassCard, NeoButton, NeoInput, NeoPill } from '../neo'
 import { ROLE_LABELS, type Role } from '../types'
 import PublicNav, { type PublicRoute } from './PublicNav'
+import { trackActivity } from '../trackActivity'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 
@@ -81,6 +82,7 @@ export default function LoginPage({
         localStorage.setItem('user_role', userRole)
 
         setIsLoading(false)
+        trackActivity(mode === 'register' ? 'register' : 'login', undefined, { email, role: userRole })
         onSignIn(userRole, displayId, token)
         return
       }
@@ -91,6 +93,7 @@ export default function LoginPage({
       // Fallback for demo ID shortcuts if backend is unreachable or not using backend DB
       if (mode === 'login' && !cleanInput.includes('@')) {
         setIsLoading(false)
+        trackActivity('login', undefined, { role, demo: true })
         onSignIn(role, cleanInput)
         return
       }

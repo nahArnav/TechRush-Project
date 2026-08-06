@@ -4,6 +4,7 @@ import { BadgeCheck, CheckCheck, ImagePlus, MapPin, SendHorizonal, ShieldAlert, 
 import { NeoButton, NeoIconButton, SPRING, Tooltip } from '../neo'
 import { emojiFor, type Item } from '../types'
 import HandoverModal from './HandoverModal'
+import { trackActivity } from '../trackActivity'
 
 /*
  * Safe Chat (Features 14, 7). A slide-out panel with:
@@ -36,6 +37,11 @@ export default function SafeChatPanel({ item, onClose }: { item: Item | null; on
     if (!body && !image) return
     setMessages((m) => [...m, { from: 'me', text: image ? 'Photo attached' : body, time: now(), image }])
     setDraft('')
+    if (image) {
+      trackActivity('photo_attached', item?.id)
+    } else {
+      trackActivity('chat_message_sent', item?.id, { textLength: body.length })
+    }
     setTimeout(
       () => setMessages((m) => [...m, { from: 'them', text: 'Great — let’s set up a safe handover.', time: now() }]),
       700,
@@ -102,7 +108,10 @@ export default function SafeChatPanel({ item, onClose }: { item: Item | null; on
                   variant="dark"
                   className="w-full"
                   iconStart={<ShieldCheck size={14} />}
-                  onClick={() => setHandover(item)}
+                  onClick={() => {
+                    setHandover(item)
+                    trackActivity('handover_proposed', item?.id)
+                  }}
                 >
                   Propose handover
                 </NeoButton>

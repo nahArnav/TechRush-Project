@@ -14,6 +14,8 @@ from dotenv import load_dotenv
 
 from . import database
 from .models import (
+    ActivityCreate,
+    ActivityOut,
     CampusMapOut,
     CampusPath,
     CampusPin,
@@ -596,3 +598,51 @@ async def get_user_by_id(user_id: str) -> UserOut | None:
         created_at=doc["created_at"],
         updated_at=doc["updated_at"],
     )
+
+
+# ---------------------------------------------------------------------------
+# Activity Tracking
+# ---------------------------------------------------------------------------
+async def log_activity(payload: ActivityCreate, user_id: str | None = None) -> ActivityOut:
+    now = utc_now()
+    doc = {
+        "user_id": user_id,
+        "action": payload.action,
+        "item_id": payload.item_id,
+        "metadata": payload.metadata,
+        "created_at": now,
+    }
+    result = await database.db.activity_log.insert_one(doc)
+    return ActivityOut(
+        id=str(result.inserted_id),
+        user_id=user_id,
+        action=payload.action,
+        item_id=payload.item_id,
+        metadata=payload.metadata,
+        created_at=now,
+    )
+
+
+async def list_activity(
+    user_id: str | None = None,
+    action: str | None = None,
+    limit: int = 50,
+) -> list[ActivityOut]:
+    filter_doc: dict = {}
+    if user_id:
+        filter_doc["user_id"] = user_id
+    if action:
+        filter_doc["action"] = action
+    cursor = database.db.activity_log.find(filter_doc).sort([("created_at", -1)]).limit(limit)
+    docs = await cursor.to_list(length=limit)
+    return [
+        ActivityOut(
+            id=str(doc["_id"]),
+            user_id=doc.get("user_id"),
+            action=doc["action"],
+            item_id=doc.get("item_id"),
+            metadata=doc.get("metadata"),
+            created_at=doc["created_at"],
+        )
+        for doc in docs
+    ]
