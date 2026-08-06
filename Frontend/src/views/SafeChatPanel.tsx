@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { BadgeCheck, CheckCheck, ImagePlus, MapPin, SendHorizonal, ShieldAlert, ShieldCheck, UserRound, X } from 'lucide-react'
 import { NeoButton, NeoIconButton, SPRING, Tooltip } from '../neo'
@@ -48,7 +49,7 @@ export default function SafeChatPanel({ item, onClose }: { item: Item | null; on
     )
   }
 
-  return (
+  return createPortal(
     <>
       <AnimatePresence>
         {item ? (
@@ -65,7 +66,7 @@ export default function SafeChatPanel({ item, onClose }: { item: Item | null; on
               animate={{ x: 0 }}
               exit={{ x: '100%' }}
               transition={SPRING}
-              className="glass fixed right-0 top-0 z-50 flex h-[100dvh] w-full max-w-2xl flex-col shadow-float"
+              className="glass fixed right-0 top-0 z-[1000] flex h-[100dvh] w-[min(100vw,42rem)] max-w-none flex-col shadow-float"
             >
               {/* Top bar — item thumbnail, title, status badge, anonymised user */}
               <header className="flex shrink-0 flex-col gap-md border-b border-line-soft px-xl py-lg">
@@ -214,6 +215,7 @@ export default function SafeChatPanel({ item, onClose }: { item: Item | null; on
       </AnimatePresence>
 
       <HandoverModal item={handover} onClose={() => setHandover(null)} />
-    </>
+    </>,
+    document.body,
   )
 }

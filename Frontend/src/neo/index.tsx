@@ -442,7 +442,7 @@ export function NeoModal({
             animate={{ scale: 1, y: 0, opacity: 1 }}
             exit={{ scale: 0.95, opacity: 0 }}
             transition={SPRING}
-            className={`relative w-full max-w-2xl rounded-neo-lg p-2xl shadow-float ${dark ? 'glass-dark border-2 border-white text-on-dark' : 'glass shadow-extrude text-ink'}`}
+            className={`relative box-border w-[min(28rem,calc(100vw-2rem))] min-w-0 max-w-none rounded-neo-lg p-2xl shadow-float ${dark ? 'glass-dark border-2 border-white text-on-dark' : 'glass shadow-extrude text-ink'}`}
           >
             {icon ? (
               <div className="mb-lg flex justify-center">
