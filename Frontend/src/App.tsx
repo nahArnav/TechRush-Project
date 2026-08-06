@@ -22,33 +22,46 @@ import { fetchItems, fetchClaims } from './api'
 
 const AdminDashboard = lazy(() => import('./views/AdminDashboard'))
 
-class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
+class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean; errorText: string }> {
   constructor(props: { children: ReactNode }) {
     super(props)
-    this.state = { hasError: false }
+    this.state = { hasError: false, errorText: '' }
   }
-  static getDerivedStateFromError() {
-    return { hasError: true }
+  static getDerivedStateFromError(error: any) {
+    return { hasError: true, errorText: error?.toString() || 'Unknown UI Error' }
   }
-  componentDidCatch(error: any) {
-    console.error('UI Exception caught by ErrorBoundary:', error)
+  componentDidCatch(error: any, errorInfo: any) {
+    console.error('UI Exception caught by ErrorBoundary:', error, errorInfo)
   }
   render() {
     if (this.state.hasError) {
       return (
-        <div className="flex min-h-screen flex-col items-center justify-center p-2xl text-center">
-          <div className="rounded-neo bg-plate p-2xl shadow-float max-w-md">
-            <h2 className="text-xl font-black text-ink">Something went wrong</h2>
-            <p className="mt-sm text-xs text-ink-muted">An error occurred while rendering this page.</p>
-            <button
-              onClick={() => {
-                this.setState({ hasError: false })
-                window.location.reload()
-              }}
-              className="mt-lg rounded-neo bg-ink px-xl py-md text-xs font-bold text-on-ink"
-            >
-              Reload Page
-            </button>
+        <div className="flex min-h-screen flex-col items-center justify-center p-2xl text-center bg-[#0e1117]">
+          <div className="rounded-neo bg-plate p-2xl shadow-float max-w-lg border border-line">
+            <h2 className="text-xl font-black text-ink">Application Interface Error</h2>
+            <p className="mt-sm text-xs text-ink-muted font-mono bg-ink/5 p-md rounded-neo text-left overflow-x-auto max-h-32">
+              {this.state.errorText}
+            </p>
+            <div className="mt-lg flex flex-wrap justify-center gap-md">
+              <button
+                onClick={() => {
+                  this.setState({ hasError: false, errorText: '' })
+                }}
+                className="rounded-neo bg-plate px-xl py-md text-xs font-bold text-ink shadow-extrude"
+              >
+                Try Again
+              </button>
+              <button
+                onClick={() => {
+                  localStorage.clear()
+                  this.setState({ hasError: false, errorText: '' })
+                  window.location.href = '/'
+                }}
+                className="rounded-neo bg-ink px-xl py-md text-xs font-bold text-on-ink shadow-float"
+              >
+                Reset Session &amp; Reload
+              </button>
+            </div>
           </div>
         </div>
       )
@@ -249,7 +262,7 @@ function AppInner() {
                 </main>
               }
             >
-              <AdminDashboard />
+              <AdminDashboard items={items} />
             </Suspense>
           )}
         </div>
@@ -283,10 +296,12 @@ function AppInner() {
 
 export default function App() {
   return (
-    <ThemeProvider>
-      <ToastProvider>
-        <AppInner />
-      </ToastProvider>
-    </ThemeProvider>
+    <ErrorBoundary>
+      <ThemeProvider>
+        <ToastProvider>
+          <AppInner />
+        </ToastProvider>
+      </ThemeProvider>
+    </ErrorBoundary>
   )
 }

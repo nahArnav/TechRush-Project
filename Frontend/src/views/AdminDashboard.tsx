@@ -35,15 +35,28 @@ function QrPlate({ seed }: { seed: string }) {
   )
 }
 
-export default function AdminDashboard() {
+const DEFAULT_TAG_ITEM: Item = {
+  id: 'LF-1001',
+  type: 'found',
+  category: 'Electronics',
+  title: 'Sample Tag Item',
+  description: 'Physical tag sample item',
+  location: 'Security Office',
+  date: '2026-08-06',
+  status: 'secured',
+  matchScore: 0.95,
+}
+
+export default function AdminDashboard({ items = [] }: { items?: Item[] }) {
+  const itemList = items.length ? items : [DEFAULT_TAG_ITEM]
   const [suspicious, setSuspicious] = useState(true)
-  const [tagItem, setTagItem] = useState<Item>(ITEMS[0])
+  const [tagItem, setTagItem] = useState<Item>(itemList[0] || DEFAULT_TAG_ITEM)
 
   const byCategory = useMemo(() => {
     const counts = new Map<string, number>()
-    ITEMS.forEach((i) => counts.set(i.category, (counts.get(i.category) ?? 0) + 1))
+    itemList.forEach((i) => counts.set(i.category, (counts.get(i.category) ?? 0) + 1))
     return [...counts.entries()].map(([category, count]) => ({ category, count })).sort((a, b) => b.count - a.count).slice(0, 6)
-  }, [])
+  }, [itemList])
 
   return (
     <main className="flex-1 px-2xl py-3xl">
@@ -99,7 +112,7 @@ export default function AdminDashboard() {
                     size="sm"
                     className="mt-md"
                     iconStart={<QrCode size={14} />}
-                    onClick={() => setTagItem(ITEMS[Math.floor(Math.random() * ITEMS.length)])}
+                    onClick={() => setTagItem(itemList[Math.floor(Math.random() * itemList.length)] || DEFAULT_TAG_ITEM)}
                   >
                     New tag
                   </NeoButton>
