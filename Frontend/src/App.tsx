@@ -1,12 +1,13 @@
-import { lazy, Suspense, useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState, Component, type ReactNode } from 'react'
 import { trackActivity } from './trackActivity'
-import { Home, Map, PlusCircle } from 'lucide-react'
+import { Home, Map, PlusCircle, User } from 'lucide-react'
 import { ThemeProvider, ToastProvider, useToast } from './neo'
 import { type Claim, type Item, type Role } from './types'
 import type { ReportPrefill } from './views/ReportItemModal'
 import LandingPage from './views/LandingPage'
 import LoginPage from './views/LoginPage'
 import SupportPage from './views/SupportPage'
+import ProfilePage from './views/ProfilePage'
 import PublicNav, { type PublicRoute } from './views/PublicNav'
 import ProfileNav from './views/ProfileNav'
 import StudentDashboard from './views/StudentDashboard'
@@ -17,34 +18,77 @@ import SafeChatPanel from './views/SafeChatPanel'
 import CampusMapModal from './views/CampusMapModal'
 import LiquidBlobs from './views/LiquidBlobs'
 import GlassDock, { type DockItem } from './views/GlassDock'
+import { fetchItems, fetchClaims } from './api'
 
-// Seed one in-flight claim so the shape-only workflow stepper (Feature 8) is visible.
-const SEED_CLAIMS: Claim[] = [{ itemId: 'LF-1043', stage: 'review' }]
-// Charting is only needed by the admin role — keep recharts out of the main bundle.
 const AdminDashboard = lazy(() => import('./views/AdminDashboard'))
+
+class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
+  constructor(props: { children: ReactNode }) {
+    super(props)
+    this.state = { hasError: false }
+  }
+  static getDerivedStateFromError() {
+    return { hasError: true }
+  }
+  componentDidCatch(error: any) {
+    console.error('UI Exception caught by ErrorBoundary:', error)
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="flex min-h-screen flex-col items-center justify-center p-2xl text-center">
+          <div className="rounded-neo bg-plate p-2xl shadow-float max-w-md">
+            <h2 className="text-xl font-black text-ink">Something went wrong</h2>
+            <p className="mt-sm text-xs text-ink-muted">An error occurred while rendering this page.</p>
+            <button
+              onClick={() => {
+                this.setState({ hasError: false })
+                window.location.reload()
+              }}
+              className="mt-lg rounded-neo bg-ink px-xl py-md text-xs font-bold text-on-ink"
+            >
+              Reload Page
+            </button>
+          </div>
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
 
 function AppInner() {
   const { push } = useToast()
-  // Unauthenticated routing: landing → sign-in portal, plus the public
-  // Support & Help page reachable before signing in (Directives 6 & 7).
   const [publicRoute, setPublicRoute] = useState<PublicRoute>('home')
   const [loginRole, setLoginRole] = useState<Role | null>(null)
   const [signedIn, setSignedIn] = useState(false)
   const [userId, setUserId] = useState('')
-  // `authRole` is what the account is permitted to see; `role` is the section
-  // currently being viewed within that permission set.
   const [authRole, setAuthRole] = useState<Role>('student')
   const [role, setRole] = useState<Role>('student')
   const [supportOpen, setSupportOpen] = useState(false)
-  const [claims, setClaims] = useState<Claim[]>(SEED_CLAIMS)
+  const [profileOpen, setProfileOpen] = useState(false)
+  const [items, setItems] = useState<Item[]>([])
+  const [claims, setClaims] = useState<Claim[]>([])
   const [reportOpen, setReportOpen] = useState(false)
   const [reportPrefill, setReportPrefill] = useState<ReportPrefill | null>(null)
   const [claimItem, setClaimItem] = useState<Item | null>(null)
   const [chatItem, setChatItem] = useState<Item | null>(null)
   const [mapOpen, setMapOpen] = useState(false)
-  const [offline, setOffline] = useState(false)
 
-  // Restore active user session from localStorage if available
+  // Load real items and claims from backend MongoDB
+  const loadBackendData = async () => {
+    try {
+      const [liveItems, liveClaims] = await Promise.all([
+        fetchItems(),
+        fetchClaims(),
+      ])
+      setItems(liveItems || [])
+      setClaims(liveClaims || [])
+    } catch (err) {
+      console.error('Failed to load data from backend:', err)
+    }
+  }
+
   useEffect(() => {
     const savedToken = localStorage.getItem('auth_token')
     const savedEmail = localStorage.getItem('user_email')
@@ -58,19 +102,17 @@ function AppInner() {
     }
   }, [])
 
-  // Offline support (Feature 27): dim the UI and prompt to save as a draft.
-  // Depend only on `offline` — `push` is stable but keeping it out of deps makes
-  // it impossible for this effect to re-fire in a loop when it pushes a toast.
   useEffect(() => {
-    if (offline) push({ title: 'You’re offline', description: 'Saved as draft', action: { label: 'Save draft', onClick: () => {} } })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [offline])
+    if (signedIn) {
+      loadBackendData()
+    }
+  }, [signedIn])
 
-  const submitClaim = (item: Item) => {
-    setClaims((prev) => (prev.some((c) => c.itemId === item.id) ? prev : [...prev, { itemId: item.id, stage: 'submitted' }]))
+  const submitClaim = (item: Item, proof: string) => {
     setClaimItem(null)
     trackActivity('claim_submitted', item.id, { category: item.category })
     push({ title: 'Claim submitted', description: 'Verification is under review.' })
+    loadBackendData()
   }
 
   if (!signedIn) {
@@ -120,10 +162,11 @@ function AppInner() {
       icon: <Home size={20} />,
       onClick: () => {
         setSupportOpen(false)
+        setProfileOpen(false)
         window.scrollTo({ top: 0, behavior: 'smooth' })
         trackActivity('page_view', undefined, { page: 'home' })
       },
-      active: !supportOpen,
+      active: !supportOpen && !profileOpen,
     },
     {
       id: 'report',
@@ -135,77 +178,106 @@ function AppInner() {
         trackActivity('report_opened')
       },
     },
+    {
+      id: 'profile',
+      label: 'My Profile',
+      icon: <User size={20} />,
+      onClick: () => {
+        setSupportOpen(false)
+        setProfileOpen(true)
+        trackActivity('page_view', undefined, { page: 'profile' })
+      },
+      active: profileOpen,
+    },
     { id: 'map', label: 'Campus map', icon: <Map size={20} />, onClick: () => { setMapOpen(true); trackActivity('map_opened') } },
   ]
 
   return (
-    <div className="relative flex min-h-screen flex-col">
-      {/* MARKER-MAKE-KIT-INVOKED */}
-      {/* Module 1 — Diffused Liquid Glass: moving blobs (z-[-1]) behind a global frost (z-0) */}
-      <LiquidBlobs />
-      <div className="pointer-events-none fixed inset-0 z-0 backdrop-blur-[80px] bg-white/20 dark:bg-black/10" />
-      <div className={`relative z-10 flex flex-1 flex-col transition-all duration-300 ${offline ? 'pointer-events-none grayscale-[0.4] opacity-60' : ''}`}>
-        <ProfileNav
-          role={role}
-          authRole={authRole}
-          userId={userId}
-          onRole={(r) => {
-            setSupportOpen(false)
-            setRole(r)
-            trackActivity('role_switched', undefined, { role: r })
-          }}
-          offline={offline}
-          onToggleOffline={() => setOffline((o) => !o)}
-          onSupport={() => { setSupportOpen((s) => !s); trackActivity('support_opened') }}
-          onSignOut={() => {
-            trackActivity('logout')
-            localStorage.removeItem('auth_token')
-            localStorage.removeItem('user_email')
-            localStorage.removeItem('user_role')
-            setSignedIn(false)
-            setLoginRole(null)
-            setUserId('')
-            setSupportOpen(false)
-            setPublicRoute('home')
+    <ErrorBoundary>
+      <div className="relative flex min-h-screen flex-col">
+        <LiquidBlobs />
+        <div className="pointer-events-none fixed inset-0 z-0 backdrop-blur-[80px] bg-white/20 dark:bg-black/10" />
+        <div className="relative z-10 flex flex-1 flex-col">
+          <ProfileNav
+            role={role}
+            authRole={authRole}
+            userId={userId}
+            onRole={(r) => {
+              setSupportOpen(false)
+              setProfileOpen(false)
+              setRole(r)
+              trackActivity('role_switched', undefined, { role: r })
+            }}
+            onProfile={() => {
+              setSupportOpen(false)
+              setProfileOpen((p) => !p)
+            }}
+            onSupport={() => {
+              setProfileOpen(false)
+              setSupportOpen((s) => !s)
+              trackActivity('support_opened')
+            }}
+            onSignOut={() => {
+              trackActivity('logout')
+              localStorage.removeItem('auth_token')
+              localStorage.removeItem('user_email')
+              localStorage.removeItem('user_role')
+              setSignedIn(false)
+              setLoginRole(null)
+              setUserId('')
+              setSupportOpen(false)
+              setProfileOpen(false)
+              setPublicRoute('home')
+            }}
+          />
+
+          {profileOpen ? (
+            <ProfilePage userId={userId} role={role} onBack={() => setProfileOpen(false)} />
+          ) : supportOpen ? (
+            <SupportPage />
+          ) : role === 'student' ? (
+            <StudentDashboard items={items} claims={claims} onClaim={setClaimItem} onChat={setChatItem} />
+          ) : role === 'staff' ? (
+            <StaffDashboard />
+          ) : (
+            <Suspense
+              fallback={
+                <main className="flex-1 px-2xl py-3xl">
+                  <div className="mx-auto max-w-6xl rounded-neo bg-plate p-2xl text-sm font-bold text-ink shadow-carve">
+                    Loading command center…
+                  </div>
+                </main>
+              }
+            >
+              <AdminDashboard />
+            </Suspense>
+          )}
+        </div>
+
+        {role === 'student' ? <GlassDock items={dockItems} /> : null}
+
+        <ReportItemModal
+          isOpen={reportOpen}
+          prefill={reportPrefill}
+          onClose={() => {
+            setReportOpen(false)
+            loadBackendData()
           }}
         />
-
-        {supportOpen ? (
-          <SupportPage />
-        ) : role === 'student' ? (
-          <StudentDashboard claims={claims} onClaim={setClaimItem} onChat={setChatItem} />
-        ) : role === 'staff' ? (
-          <StaffDashboard />
-        ) : (
-          <Suspense
-            fallback={
-              <main className="flex-1 px-2xl py-3xl">
-                <div className="mx-auto max-w-6xl rounded-neo bg-plate p-2xl text-sm font-bold text-ink shadow-carve">
-                  Loading command center…
-                </div>
-              </main>
-            }
-          >
-            <AdminDashboard />
-          </Suspense>
-        )}
+        <ClaimModal item={claimItem} onClose={() => setClaimItem(null)} onSubmit={submitClaim} />
+        <SafeChatPanel item={chatItem} onClose={() => setChatItem(null)} />
+        <CampusMapModal
+          isOpen={mapOpen}
+          onClose={() => setMapOpen(false)}
+          onReportHere={(prefill) => {
+            setMapOpen(false)
+            setReportPrefill(prefill)
+            setReportOpen(true)
+          }}
+          onSelectItem={(item) => setClaimItem(item)}
+        />
       </div>
-
-      {role === 'student' ? <GlassDock items={dockItems} /> : null}
-
-      <ReportItemModal isOpen={reportOpen} prefill={reportPrefill} onClose={() => setReportOpen(false)} />
-      <ClaimModal item={claimItem} onClose={() => setClaimItem(null)} onSubmit={submitClaim} />
-      <SafeChatPanel item={chatItem} onClose={() => setChatItem(null)} />
-      <CampusMapModal
-        isOpen={mapOpen}
-        onClose={() => setMapOpen(false)}
-        onReportHere={(prefill) => {
-          setMapOpen(false)
-          setReportPrefill(prefill)
-          setReportOpen(true)
-        }}
-      />
-    </div>
+    </ErrorBoundary>
   )
 }
 

@@ -47,11 +47,13 @@ function Lane({
 }
 
 export default function StudentDashboard({
-  claims,
+  items = [],
+  claims = [],
   onClaim,
   onChat,
 }: {
-  claims: Claim[]
+  items?: Item[]
+  claims?: Claim[]
   onClaim: (item: Item) => void
   onChat: (item: Item) => void
 }) {
@@ -60,11 +62,11 @@ export default function StudentDashboard({
 
   const results = useMemo(() => {
     const q = query.trim().toLowerCase()
-    if (!q) return ITEMS
-    return ITEMS.filter((i) =>
+    if (!q) return items
+    return items.filter((i) =>
       `${i.title} ${i.description} ${i.location} ${i.category}`.toLowerCase().includes(q),
     )
-  }, [query])
+  }, [items, query])
 
   const aiMatches = [...results].filter((i) => i.matchScore >= 0.85).sort((a, b) => b.matchScore - a.matchScore)
   const found = results.filter((i) => i.type === 'found')

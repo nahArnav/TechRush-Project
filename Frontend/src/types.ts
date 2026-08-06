@@ -22,11 +22,21 @@ const raw = data as unknown as {
   items?: Item[]
 }
 
-export const ITEMS: Item[] = Array.isArray(raw.items) ? raw.items : []
+export const ITEMS: Item[] = []
 export const CATEGORIES: Record<string, CategoryStyle> = raw.categories ?? {}
-export const CATEGORY_NAMES = Object.keys(CATEGORIES).length
-  ? Object.keys(CATEGORIES)
-  : [...new Set(ITEMS.map((i) => i.category))]
+export const CATEGORY_NAMES = [
+  'Electronics',
+  'Phone',
+  'Keys',
+  'Wallet',
+  'Bags',
+  'Clothing',
+  'Books',
+  'Jewellery',
+  'Government ID',
+  'Medicine',
+  'Other',
+]
 
 const FALLBACK: CategoryStyle = { emoji: '🎁', pill: '' }
 export const categoryStyle = (name: string): CategoryStyle => CATEGORIES[name] ?? FALLBACK

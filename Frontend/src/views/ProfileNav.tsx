@@ -1,17 +1,8 @@
-import { useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Bell, LifeBuoy, LogOut, UserCheck } from 'lucide-react'
+import { Bell, LifeBuoy, LogOut, User, UserCheck } from 'lucide-react'
 import { GlassPanel, NeoIconButton, NeoPill, SPRING, ThemeToggle, Tooltip } from '../neo'
 import { ROLE_LABELS, type Role } from '../types'
 
-/*
- * Top profile navigation. Houses the signed-in ID badge, a role switcher gated by
- * the account's permissions, the theme switch (Module 1), a notifications bell
- * (Feature 6), Support & Help, an offline simulator, and sign-out — all monochrome.
- *
- * Role-based visibility (Directive 1): a student account sees only the Student
- * section; helping staff see Student + Helping Staff; admin sees all three.
- */
 const ALERTS = [
   { title: 'New AI match', body: 'A silver laptop matches your lost report (92%).' },
   { title: 'Claim in review', body: 'Your AirPods claim moved to Review.' },
@@ -29,8 +20,7 @@ export default function ProfileNav({
   authRole,
   userId,
   onRole,
-  offline,
-  onToggleOffline,
+  onProfile,
   onSupport,
   onSignOut,
 }: {
@@ -38,8 +28,7 @@ export default function ProfileNav({
   authRole: Role
   userId?: string
   onRole: (r: Role) => void
-  offline: boolean
-  onToggleOffline: () => void
+  onProfile: () => void
   onSupport: () => void
   onSignOut: () => void
 }) {
@@ -120,6 +109,9 @@ export default function ProfileNav({
           </AnimatePresence>
         </div>
 
+        <Tooltip label="My Profile">
+          <NeoIconButton icon={<User size={16} />} onClick={onProfile} aria-label="My Profile" />
+        </Tooltip>
         <Tooltip label="Support & help">
           <NeoIconButton icon={<LifeBuoy size={16} />} onClick={onSupport} aria-label="Support and help" />
         </Tooltip>

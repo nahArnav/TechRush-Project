@@ -10,11 +10,13 @@
     "format": "oxfmt"
   },
   "dependencies": {
+    "@types/three": "^0.185.4",
     "framer-motion": "^12.43.0",
     "lucide-react": "^1.28.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "recharts": "^3.10.1"
+    "recharts": "^3.10.1",
+    "three": "^0.185.1"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.0.0",

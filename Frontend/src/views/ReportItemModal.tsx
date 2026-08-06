@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import { AlertTriangle, Camera, Check, Sparkles, UploadCloud } from 'lucide-react'
-import { NeoButton, NeoInput, NeoModal, NeoSelect, NeoToggle } from '../neo'
-import { CATEGORY_NAMES, ITEMS, isSensitive } from '../types'
+import { NeoButton, NeoInput, NeoModal, NeoPill, NeoSelect, NeoToggle } from '../neo'
+import { CATEGORY_NAMES, isSensitive } from '../types'
 import { trackActivity } from '../trackActivity'
+import { createItem } from '../api'
 
 /*
  * Smart reporting flow (Features 11, 1, 21, 13, 16). Photo → simulated AI fills
@@ -68,20 +69,25 @@ export default function ReportItemModal({
   const [warning, setWarning] = useState<Warning>(null)
   const [submitted, setSubmitted] = useState(false)
 
+  const [reportType, setReportType] = useState<'lost' | 'found'>('lost')
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState('')
+
   const isDevice = category === 'Electronics' || category === 'Phone'
   const sensitive = isSensitive(category)
 
   // Prefill building / floor / coordinates when opened from the map hotspot menu.
   useEffect(() => {
     if (!isOpen || !prefill) return
+    if (prefill.type) setReportType(prefill.type)
     setBuilding(prefill.building)
-    // The map labels floors "1st Floor"; the select stores the bare "1st".
     setFloor(FLOOR_OPTIONS.find((f) => prefill.floor.startsWith(f.value))?.value ?? 'Ground')
     setSpot(prefill.coordinates)
   }, [isOpen, prefill])
 
   const reset = () => {
     setAnalyzed(false)
+    setReportType('lost')
     setCategory('')
     setTitle('')
     setBrand('')
@@ -94,7 +100,10 @@ export default function ReportItemModal({
     setAnonymous(false)
     setWarning(null)
     setSubmitted(false)
+    setSubmitting(false)
+    setError('')
   }
+
   const close = () => {
     reset()
     onClose()
@@ -108,18 +117,40 @@ export default function ReportItemModal({
     trackActivity('photo_analyzed')
   }
 
+  const handleFinalSubmit = async () => {
+    setSubmitting(true)
+    setError('')
+    try {
+      const today = new Date().toISOString().split('T')[0]
+      const locationStr = building ? `${building}, ${spot || floor}` : (spot || 'Campus Quad')
+      
+      const created = await createItem({
+        type: reportType,
+        category: category || 'Other',
+        title: title || 'Reported item',
+        description: description || 'No detailed description provided.',
+        location: locationStr,
+        date: when ? when.split('T')[0] : today,
+        brand: brand || undefined,
+        color: color || undefined,
+        anonymous,
+      })
+
+      trackActivity('report_submitted', created.id, { category, title, type: reportType, building, floor })
+      setSubmitted(true)
+    } catch (err: any) {
+      setError(err?.message || 'Failed to submit report. Please try again.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
   const submit = () => {
     if (sensitive) {
       trackActivity('report_submitted', undefined, { category, title, status: 'warning_sensitive' })
       return setWarning('sensitive')
     }
-    const dup = ITEMS.some((i) => i.category === category && i.type === 'found')
-    if (dup) {
-      trackActivity('report_submitted', undefined, { category, title, status: 'warning_duplicate' })
-      return setWarning('duplicate')
-    }
-    trackActivity('report_submitted', undefined, { category, title, building, floor, anonymous })
-    setSubmitted(true)
+    handleFinalSubmit()
   }
 
   return (
@@ -133,16 +164,32 @@ export default function ReportItemModal({
         subtitle="Add a photo and we’ll auto-detect the details"
         footer={
           <>
-            <NeoButton variant="raised" onClick={close}>
+            <NeoButton variant="raised" onClick={close} disabled={submitting}>
               Cancel
             </NeoButton>
-            <NeoButton variant="dark" disabled={!category || !title} onClick={submit}>
-              Submit report
+            <NeoButton variant="dark" disabled={!category || !title || submitting} onClick={submit}>
+              {submitting ? 'Submitting…' : 'Submit report'}
             </NeoButton>
           </>
         }
       >
-        <div className="mx-auto flex w-full max-w-3xl flex-col gap-xl">
+        <div className="mx-auto flex w-full max-w-3xl max-h-[75vh] flex-col gap-xl overflow-y-auto pr-sm">
+          {error ? (
+            <div className="rounded-neo border border-line bg-plate px-lg py-md text-xs font-medium text-ink shadow-carve-sm">
+              ⚠️ {error}
+            </div>
+          ) : null}
+
+          {/* Type selector */}
+          <div className="flex items-center gap-md">
+            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-ink-muted">Report type:</span>
+            <NeoPill active={reportType === 'lost'} onClick={() => setReportType('lost')}>
+              Lost Item
+            </NeoPill>
+            <NeoPill active={reportType === 'found'} onClick={() => setReportType('found')}>
+              Found Item
+            </NeoPill>
+          </div>
           {/* Drop zone — fills the container at a fixed height so it can never
               compress into a thin vertical strip. */}
           <button

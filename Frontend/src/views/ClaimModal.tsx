@@ -1,12 +1,8 @@
 import { useEffect, useState } from 'react'
 import { NeoButton, NeoModal } from '../neo'
 import { CLAIM_STAGES, emojiFor, isSensitive, type Item } from '../types'
+import { createClaim } from '../api'
 
-/*
- * Secure claiming (Features 4 & 8). Ownership must be proven before release; the
- * verification prompt adapts to the category ("Describe the phone wallpaper").
- * A preview of the Submitted → Review → Approved stepper sets expectations.
- */
 const PROOF_PROMPT: Record<string, string> = {
   Phone: 'Describe the lock-screen wallpaper and case.',
   Electronics: 'Describe the wallpaper, stickers or any engraving.',
@@ -21,17 +17,45 @@ export default function ClaimModal({
 }: {
   item: Item | null
   onClose: () => void
-  onSubmit: (item: Item) => void
+  onSubmit: (item: Item, proof: string) => void
 }) {
   const [proof, setProof] = useState('')
-  useEffect(() => setProof(''), [item])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    setProof('')
+    setError('')
+    setLoading(false)
+  }, [item])
+
   if (!item) return null
 
   const prompt = PROOF_PROMPT[item.category] ?? 'Describe details only the owner would know.'
 
+  const handleSubmit = async () => {
+    if (proof.trim().length < 10) return
+    setLoading(true)
+    setError('')
+    try {
+      await createClaim(item.id, proof)
+      onSubmit(item, proof)
+    } catch (err: any) {
+      setError(err?.message || 'Failed to submit claim. Please try again.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
   return (
     <NeoModal isOpen={!!item} onClose={onClose} title="Verify your claim">
-      <div className="flex flex-col gap-lg">
+      <div className="flex flex-col gap-lg max-h-[80vh] overflow-y-auto pr-sm">
+        {error ? (
+          <div className="rounded-neo border border-line bg-plate px-lg py-md text-xs font-medium text-ink shadow-carve-sm">
+            ⚠️ {error}
+          </div>
+        ) : null}
+
         <div className="flex items-center gap-md rounded-neo bg-plate p-lg shadow-carve-sm">
           <span className="flex size-11 items-center justify-center rounded-neo bg-plate text-xl shadow-extrude-sm">
             {emojiFor(item.category)}
@@ -76,12 +100,12 @@ export default function ClaimModal({
           />
         </label>
 
-        <div className="flex justify-end gap-md">
-          <NeoButton variant="raised" onClick={onClose}>
+        <div className="flex justify-end gap-md pt-md">
+          <NeoButton variant="raised" onClick={onClose} disabled={loading}>
             Cancel
           </NeoButton>
-          <NeoButton variant="dark" disabled={proof.trim().length < 10} onClick={() => onSubmit(item)}>
-            Submit claim
+          <NeoButton variant="dark" disabled={proof.trim().length < 10 || loading} onClick={handleSubmit}>
+            {loading ? 'Submitting…' : 'Submit claim'}
           </NeoButton>
         </div>
       </div>

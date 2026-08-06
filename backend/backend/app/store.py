@@ -154,10 +154,8 @@ def _doc_to_claim(doc: dict) -> ClaimOut:
 # Database initialisation & seeding
 # ---------------------------------------------------------------------------
 async def init_db() -> None:
-    """Seed items + one demo claim if the items collection is empty."""
-    count = await database.db.items.count_documents({})
-    if count == 0:
-        await _seed_items()
+    """Initialize database if needed."""
+    pass
 
 
 async def _seed_items() -> None:

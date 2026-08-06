@@ -49,17 +49,27 @@ export default function LoginPage({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!emailOrId.trim()) return setError('Please enter your Email or Campus ID.')
-    if (!password.trim()) return setError('Please enter your password.')
+    const cleanInput = emailOrId.trim()
+    const email = cleanInput.includes('@') ? cleanInput : `${cleanInput.toLowerCase()}@pict.edu`
+
+    if (!cleanInput) {
+      return setError('Please enter your Email or Campus ID.')
+    }
+    if (mode === 'register' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return setError('Please enter a valid email address.')
+    }
+    if (!password.trim()) {
+      return setError('Please enter your password.')
+    }
+    if (mode === 'register' && password.length < 6) {
+      return setError('Password must be at least 6 characters long.')
+    }
 
     setError('')
     setIsLoading(true)
 
-    const cleanInput = emailOrId.trim()
-    const email = cleanInput.includes('@') ? cleanInput : `${cleanInput.toLowerCase()}@pict.edu`
-
     try {
-      const endpoint = mode === 'register' ? '/api/auth/register' : '/api/auth/login'
+      const endpoint = mode === 'register' ? '/v1/auth/register' : '/v1/auth/login'
       const response = await fetch(`${API_BASE_URL}${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -70,13 +80,13 @@ export default function LoginPage({
         }),
       })
 
-      if (response.ok) {
-        const data = await response.json()
+      const data = await response.json().catch(() => ({}))
+
+      if (response.ok && data.access_token) {
         const token = data.access_token
         const userRole = (data.role as Role) || role
         const displayId = data.email || cleanInput
 
-        // Store token securely in localStorage (Requirement 4)
         localStorage.setItem('auth_token', token)
         localStorage.setItem('user_email', data.email || email)
         localStorage.setItem('user_role', userRole)
@@ -87,22 +97,17 @@ export default function LoginPage({
         return
       }
 
-      const errData = await response.json().catch(() => ({}))
-      const msg = errData.detail || (mode === 'register' ? 'Registration failed.' : 'Invalid credentials.')
-      
-      // Fallback for demo ID shortcuts if backend is unreachable or not using backend DB
+      const msg = data.detail || (mode === 'register' ? 'Registration failed. Email may already be in use.' : 'Invalid email or password.')
+      setError(msg)
+    } catch (err: any) {
+      // Fallback for offline or demo login shortcuts
       if (mode === 'login' && !cleanInput.includes('@')) {
         setIsLoading(false)
         trackActivity('login', undefined, { role, demo: true })
         onSignIn(role, cleanInput)
         return
       }
-
-      setError(msg)
-    } catch {
-      // Graceful offline / standalone fallback
-      setIsLoading(false)
-      onSignIn(role, cleanInput)
+      setError(err?.message || 'Server connection failed. Please ensure the backend is running.')
     } finally {
       setIsLoading(false)
     }
