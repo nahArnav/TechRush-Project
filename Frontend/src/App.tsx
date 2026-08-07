@@ -302,7 +302,7 @@ function AppInner() {
           }}
         />
         <ClaimModal item={claimItem} onClose={() => setClaimItem(null)} onSubmit={submitClaim} />
-        <SafeChatPanel item={chatItem} onClose={() => setChatItem(null)} />
+        <SafeChatPanel item={chatItem} claimId={chatItem ? claims.find((claim) => claim.itemId === chatItem.id)?.id : undefined} onClose={() => setChatItem(null)} />
         <CampusMapModal
           isOpen={mapOpen}
           onClose={() => setMapOpen(false)}

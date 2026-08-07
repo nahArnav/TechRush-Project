@@ -127,6 +127,7 @@ export async function fetchClaims(): Promise<Claim[]> {
   return (data || []).map((c: any) => ({
     id: c.id,
     itemId: c.item_id,
+    itemTitle: c.item_title || c.item?.title,
     status: c.status || (c.stage === 'approved' ? 'approved' : c.stage === 'rejected' ? 'rejected' : 'pending'),
     stage: c.status || (c.stage === 'approved' ? 'approved' : c.stage === 'rejected' ? 'rejected' : 'pending'),
     claimerId: c.claimer_id,
@@ -151,6 +152,7 @@ export async function createClaim(itemId: string, proof: string): Promise<Claim>
   return {
     id: c.id,
     itemId: c.item_id,
+    itemTitle: c.item_title || c.item?.title,
     status: c.status || 'pending',
     stage: c.status || 'pending',
     claimerId: c.claimer_id,
@@ -172,6 +174,7 @@ export async function updateClaimStage(claimId: string, stage: string): Promise<
   return {
     id: c.id,
     itemId: c.item_id,
+    itemTitle: c.item_title || c.item?.title,
     status: c.status || 'pending',
     stage: c.status || 'pending',
     claimantRole: c.claimant_role,
@@ -183,6 +186,7 @@ function mapAdminClaim(c: any): AdminClaim {
   return {
     id: c.id,
     itemId: c.item_id,
+    itemTitle: c.item_title || c.item?.title,
     status: c.status,
     stage: c.status,
     claimerId: c.claimer_id,
@@ -191,12 +195,14 @@ function mapAdminClaim(c: any): AdminClaim {
     proofDescription: c.proof_description,
     createdAt: c.created_at,
     adminNotes: c.admin_notes,
+    unreadMessageCount: c.unread_message_count || 0,
     item: c.item ? mapItem(c.item) : undefined,
   }
 }
 
-export async function fetchAdminClaims(status = 'pending'): Promise<AdminClaim[]> {
-  const res = await fetch(`${API_BASE_URL}/api/admin/claims?status=${encodeURIComponent(status)}`, { headers: getHeaders() })
+export async function fetchAdminClaims(status?: 'pending' | 'approved' | 'rejected'): Promise<AdminClaim[]> {
+  const suffix = status ? `?status=${encodeURIComponent(status)}` : ''
+  const res = await fetch(`${API_BASE_URL}/api/admin/claims${suffix}`, { headers: getHeaders() })
   if (!res.ok) throw new Error('Failed to load claims for review')
   return (await res.json()).map(mapAdminClaim)
 }
@@ -210,7 +216,7 @@ export async function reviewAdminClaim(claimId: string, status: 'approved' | 're
     throw new Error(err.detail || 'Failed to review claim')
   }
   const c = await res.json()
-  return { id: c.id, itemId: c.item_id, status: c.status, stage: c.status, claimantRole: c.claimant_role, createdAt: c.created_at }
+  return { id: c.id, itemId: c.item_id, itemTitle: c.item_title || c.item?.title, status: c.status, stage: c.status, claimantRole: c.claimant_role, createdAt: c.created_at }
 }
 
 export async function fetchMapData() {
@@ -243,18 +249,41 @@ export async function suggestReportDetails(payload: {
 export type ChatMessage = {
   id: string
   itemId: string
+  claimId?: string
   sender: 'me' | 'them' | 'staff' | 'system'
   text: string
   createdAt: string
+  readByAdmin?: boolean
 }
 
 const mapMessage = (m: any): ChatMessage => ({
   id: String(m.id),
   itemId: String(m.item_id),
+  claimId: m.claim_id,
   sender: m.sender || 'me',
   text: m.text || '',
   createdAt: m.created_at || new Date().toISOString(),
+  readByAdmin: Boolean(m.read_by_admin),
 })
+
+export async function fetchClaimMessages(claimId: string, admin = false): Promise<ChatMessage[]> {
+  const prefix = admin ? '/api/admin/claims' : '/api/claims'
+  const res = await fetch(`${API_BASE_URL}${prefix}/${claimId}/messages`, { headers: getHeaders() })
+  if (!res.ok) throw new Error('Failed to load claim conversation')
+  return (await res.json()).map(mapMessage)
+}
+
+export async function sendClaimMessage(claimId: string, text: string, admin = false): Promise<ChatMessage> {
+  const prefix = admin ? '/api/admin/claims' : '/api/claims'
+  const res = await fetch(`${API_BASE_URL}${prefix}/${claimId}/messages`, {
+    method: 'POST', headers: getHeaders(), body: JSON.stringify({ message: text }),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || 'Failed to send message')
+  }
+  return mapMessage(await res.json())
+}
 
 export async function fetchMessages(itemId: string): Promise<ChatMessage[]> {
   const res = await fetch(`${API_BASE_URL}/v1/messages/${itemId}`, { headers: getHeaders() })

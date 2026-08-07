@@ -96,6 +96,7 @@ export const CLAIM_STAGES: { id: ClaimStage; label: string }[] = [
 export type Claim = {
   id: string
   itemId: string
+  itemTitle?: string
   claimerId?: string
   claimerEmail?: string
   proofDescription?: string
@@ -104,6 +105,7 @@ export type Claim = {
   claimantRole: Role
   createdAt: string
   adminNotes?: string
+  unreadMessageCount?: number
 }
 
 export type AdminClaim = Claim & { item?: Item }

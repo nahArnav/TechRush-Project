@@ -165,6 +165,7 @@ def _doc_to_claim(doc: dict) -> ClaimOut:
     return ClaimOut(
         id=str(doc["_id"]),
         item_id=doc["item_id"],
+        item_title=doc.get("item_title"),
         claimer_id=doc.get("claimer_id"),
         claimer_email=doc.get("claimer_email"),
         proof_description=doc.get("proof_description", doc.get("proof", "")),
@@ -174,6 +175,22 @@ def _doc_to_claim(doc: dict) -> ClaimOut:
         proof_submitted=bool(doc.get("proof_description", doc.get("proof"))),
         created_at=doc["created_at"],
         admin_notes=doc.get("admin_notes"),
+        unread_message_count=int(doc.get("unread_message_count", 0) or 0),
+    )
+
+
+def _doc_to_message(doc: dict) -> MessageOut:
+    return MessageOut(
+        id=str(doc["_id"]),
+        item_id=doc["item_id"],
+        claim_id=doc.get("claim_id"),
+        sender_id=doc.get("sender_id"),
+        receiver_id=doc.get("receiver_id"),
+        sender=doc["sender"],
+        text=doc["text"],
+        created_at=doc["created_at"],
+        timestamp=doc.get("timestamp", doc["created_at"]),
+        read_by_admin=bool(doc.get("read_by_admin", False)),
     )
 
 
@@ -476,11 +493,36 @@ async def list_claims(claimer_id: str | None = None) -> list[ClaimOut]:
         docs = [doc.copy() for doc in _memory_claims]
         if claimer_id:
             docs = [doc for doc in docs if doc.get("claimer_id") == claimer_id]
+        items_by_id = {item["id"]: item for item in _memory_items}
+        for doc in docs:
+            item = items_by_id.get(doc["item_id"])
+            if item:
+                doc["item_title"] = item.get("title")
+            doc["unread_message_count"] = sum(
+                1
+                for message in _memory_messages
+                if message.get("claim_id") == str(doc["_id"]) and message.get("sender") not in {"staff", "system"} and not message.get("read_by_admin", False)
+            )
         docs.sort(key=lambda doc: doc["created_at"], reverse=True)
         return [_doc_to_claim(doc) for doc in docs[:500]]
 
     cursor = database.db.claims.find({"claimer_id": claimer_id} if claimer_id else {}).sort([("created_at", -1)])
     docs = await cursor.to_list(length=500)
+    item_ids = list({doc["item_id"] for doc in docs if doc.get("item_id")})
+    items_by_id: dict[str, dict] = {}
+    if item_ids:
+        item_cursor = database.db.items.find({"id": {"$in": item_ids}})
+        item_docs = await item_cursor.to_list(length=len(item_ids))
+        items_by_id = {item["id"]: item for item in item_docs}
+    for doc in docs:
+        item = items_by_id.get(doc["item_id"])
+        if item:
+            doc["item_title"] = item.get("title")
+        doc["unread_message_count"] = await database.db.messages.count_documents({
+            "claim_id": str(doc["_id"]),
+            "sender": {"$nin": ["staff", "system"]},
+            "read_by_admin": {"$ne": True},
+        })
     return [_doc_to_claim(doc) for doc in docs]
 
 
@@ -493,6 +535,7 @@ async def create_claim(payload: ClaimCreate, role: Role, claimer_id: str | None 
         doc = {
             "_id": ObjectId(),
             "item_id": payload.item_id,
+            "item_title": item.get("title"),
             "stage": "review",
             "status": "pending",
             "claimant_role": role,
@@ -513,6 +556,7 @@ async def create_claim(payload: ClaimCreate, role: Role, claimer_id: str | None 
     now = utc_now()
     result = await database.db.claims.insert_one({
         "item_id": payload.item_id,
+        "item_title": item.get("title"),
         "stage": "review",
         "status": "pending",
         "claimant_role": role,
@@ -568,6 +612,15 @@ async def list_admin_claims(status_filter: str | None = None) -> list[AdminClaim
             docs = [doc for doc in docs if (doc.get("status") or "pending") == status_filter]
         docs.sort(key=lambda doc: doc["created_at"], reverse=True)
         items_by_id = {item["id"]: item for item in _memory_items}
+        for doc in docs:
+            item = items_by_id.get(doc["item_id"])
+            if item:
+                doc["item_title"] = item.get("title")
+            doc["unread_message_count"] = sum(
+                1
+                for message in _memory_messages
+                if message.get("claim_id") == str(doc["_id"]) and message.get("sender") not in {"staff", "system"}
+            )
         return [AdminClaimOut(**_doc_to_claim(doc).model_dump(), item=_doc_to_item(items_by_id[doc["item_id"]]) if doc["item_id"] in items_by_id else None) for doc in docs[:500]]
 
     query = {"status": status_filter} if status_filter else {}
@@ -575,6 +628,12 @@ async def list_admin_claims(status_filter: str | None = None) -> list[AdminClaim
     result: list[AdminClaimOut] = []
     for doc in docs:
         item_doc = await database.db.items.find_one({"id": doc["item_id"]})
+        if item_doc:
+            doc["item_title"] = item_doc.get("title")
+        doc["unread_message_count"] = await database.db.messages.count_documents({
+            "claim_id": str(doc["_id"]),
+            "sender": {"$nin": ["staff", "system"]},
+        })
         result.append(AdminClaimOut(**_doc_to_claim(doc).model_dump(), item=_doc_to_item(item_doc) if item_doc else None))
     return result
 
@@ -628,6 +687,21 @@ async def review_claim(claim_id: str, claim_status: str, admin_notes: str) -> Op
 # ---------------------------------------------------------------------------
 # Messages / Safe Chat
 # ---------------------------------------------------------------------------
+def _memory_claim_doc(claim_id: str) -> dict[str, Any] | None:
+    return next((claim for claim in _memory_claims if str(claim["_id"]) == claim_id), None)
+
+
+async def get_claim_doc(claim_id: str) -> dict[str, Any] | None:
+    if database.db is None:
+        claim = _memory_claim_doc(claim_id)
+        return claim.copy() if claim else None
+    try:
+        oid = ObjectId(claim_id)
+    except Exception:
+        return None
+    return await database.db.claims.find_one({"_id": oid})
+
+
 async def list_messages(item_id: str) -> Optional[list[MessageOut]]:
     item = await get_item(item_id)
     if not item:
@@ -635,29 +709,11 @@ async def list_messages(item_id: str) -> Optional[list[MessageOut]]:
     if database.db is None:
         docs = [doc for doc in _memory_messages if doc["item_id"] == item_id]
         docs.sort(key=lambda doc: doc["created_at"])
-        return [
-            MessageOut(
-                id=str(doc["_id"]),
-                item_id=doc["item_id"],
-                sender=doc["sender"],
-                text=doc["text"],
-                created_at=doc["created_at"],
-            )
-            for doc in docs[:500]
-        ]
+        return [_doc_to_message(doc) for doc in docs[:500]]
 
     cursor = database.db.messages.find({"item_id": item_id}).sort([("created_at", 1)])
     docs = await cursor.to_list(length=500)
-    return [
-        MessageOut(
-            id=str(doc["_id"]),
-            item_id=doc["item_id"],
-            sender=doc["sender"],
-            text=doc["text"],
-            created_at=doc["created_at"],
-        )
-        for doc in docs
-    ]
+    return [_doc_to_message(doc) for doc in docs]
 
 
 async def create_message(item_id: str, payload: MessageCreate) -> Optional[MessageOut]:
@@ -674,13 +730,7 @@ async def create_message(item_id: str, payload: MessageCreate) -> Optional[Messa
             "created_at": now,
         }
         _memory_messages.append(doc)
-        return MessageOut(
-            id=str(doc["_id"]),
-            item_id=doc["item_id"],
-            sender=doc["sender"],
-            text=doc["text"],
-            created_at=doc["created_at"],
-        )
+        return _doc_to_message(doc)
 
     result = await database.db.messages.insert_one({
         "item_id": item_id,
@@ -689,13 +739,73 @@ async def create_message(item_id: str, payload: MessageCreate) -> Optional[Messa
         "created_at": now,
     })
     doc = await database.db.messages.find_one({"_id": result.inserted_id})
-    return MessageOut(
-        id=str(doc["_id"]),
-        item_id=doc["item_id"],
-        sender=doc["sender"],
-        text=doc["text"],
-        created_at=doc["created_at"],
-    )
+    return _doc_to_message(doc)
+
+
+async def list_claim_messages(claim_id: str, mark_read: bool = False) -> Optional[list[MessageOut]]:
+    claim = await get_claim_doc(claim_id)
+    if not claim:
+        return None
+
+    if database.db is None:
+        docs = [doc for doc in _memory_messages if doc.get("claim_id") == claim_id]
+        if mark_read:
+            for doc in docs:
+                if doc.get("sender") not in {"staff", "system"}:
+                    doc["read_by_admin"] = True
+        docs.sort(key=lambda doc: doc["created_at"])
+        return [_doc_to_message(doc) for doc in docs[:500]]
+
+    if mark_read:
+        await database.db.messages.update_many(
+            {"claim_id": claim_id, "sender": {"$nin": ["staff", "system"]}}, {"$set": {"read_by_admin": True}},
+        )
+    cursor = database.db.messages.find({"claim_id": claim_id}).sort([("created_at", 1)])
+    docs = await cursor.to_list(length=500)
+    return [_doc_to_message(doc) for doc in docs]
+
+
+async def create_claim_message(claim_id: str, payload: MessageCreate, sender_id: str | None, sender_role: Role) -> Optional[MessageOut]:
+    claim = await get_claim_doc(claim_id)
+    if not claim:
+        return None
+
+    item_id = claim["item_id"]
+    now = utc_now()
+    sender = "staff" if sender_role == "admin" else payload.sender
+    # Admin accounts are role-based in this deployment; use a stable recipient
+    # identifier until a specific admin is assigned to the claim.
+    receiver_id = claim.get("claimer_id") if sender == "staff" else "admin"
+    doc = {
+        "_id": ObjectId(),
+        "item_id": item_id,
+        "claim_id": claim_id,
+        "sender_id": sender_id,
+        "receiver_id": receiver_id,
+        "sender": sender,
+        "text": payload.text,
+        "created_at": now,
+        "timestamp": now,
+        "read_by_admin": sender != "staff",
+    }
+
+    if database.db is None:
+        _memory_messages.append(doc)
+        return _doc_to_message(doc)
+
+    result = await database.db.messages.insert_one({
+        "item_id": item_id,
+        "claim_id": claim_id,
+        "sender_id": sender_id,
+        "receiver_id": receiver_id,
+        "sender": sender,
+        "text": payload.text,
+        "created_at": now,
+        "timestamp": now,
+        "read_by_admin": sender != "staff",
+    })
+    saved = await database.db.messages.find_one({"_id": result.inserted_id})
+    return _doc_to_message(saved)
 
 
 # ---------------------------------------------------------------------------

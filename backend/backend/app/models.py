@@ -132,6 +132,7 @@ class ClaimOut(BaseModel):
 
     id: str
     item_id: str
+    item_title: Optional[str] = None
     claimer_id: Optional[str] = None
     claimer_email: Optional[str] = None
     proof_description: str
@@ -141,6 +142,7 @@ class ClaimOut(BaseModel):
     proof_submitted: bool
     created_at: str
     admin_notes: Optional[str] = None
+    unread_message_count: int = 0
 
 
 class AdminClaimOut(ClaimOut):
@@ -151,7 +153,7 @@ class AdminClaimOut(ClaimOut):
 # Message / Chat models
 # ---------------------------------------------------------------------------
 class MessageCreate(BaseModel):
-    text: str = Field(min_length=1, max_length=600)
+    text: str = Field(min_length=1, max_length=600, validation_alias=AliasChoices("text", "message"))
     sender: Literal["me", "them", "staff", "system"] = "me"
 
 
@@ -160,9 +162,14 @@ class MessageOut(BaseModel):
 
     id: str
     item_id: str
+    claim_id: Optional[str] = None
+    sender_id: Optional[str] = None
+    receiver_id: Optional[str] = None
     sender: str
     text: str
     created_at: str
+    timestamp: str
+    read_by_admin: bool = False
 
 
 # ---------------------------------------------------------------------------

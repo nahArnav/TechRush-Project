@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { BadgeCheck, CheckCheck, ImagePlus, MapPin, SendHorizonal, ShieldAlert, ShieldCheck, UserRound, X } from 'lucide-react'
-import { fetchMessages, sendMessage, type ChatMessage } from '../api'
+import { fetchClaimMessages, fetchMessages, sendClaimMessage, sendMessage, type ChatMessage } from '../api'
 import { NeoButton, NeoIconButton, SPRING, Tooltip } from '../neo'
 import { emojiFor, type Item } from '../types'
 import HandoverModal from './HandoverModal'
@@ -10,7 +10,7 @@ import { trackActivity } from '../trackActivity'
 const timeLabel = (iso: string) =>
   new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
 
-export default function SafeChatPanel({ item, onClose }: { item: Item | null; onClose: () => void }) {
+export default function SafeChatPanel({ item, claimId, onClose }: { item: Item | null; claimId?: string; onClose: () => void }) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [draft, setDraft] = useState('')
   const [bannerOpen, setBannerOpen] = useState(true)
@@ -22,13 +22,14 @@ export default function SafeChatPanel({ item, onClose }: { item: Item | null; on
     let active = true
     if (!item) return
     setMessages([])
-    fetchMessages(item.id).then((loaded) => {
+    const load = claimId ? fetchClaimMessages(claimId) : fetchMessages(item.id)
+    load.then((loaded) => {
       if (active) setMessages(loaded)
     })
     return () => {
       active = false
     }
-  }, [item])
+  }, [item, claimId])
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
@@ -39,7 +40,7 @@ export default function SafeChatPanel({ item, onClose }: { item: Item | null; on
     if (!body || !item || sending) return
     setSending(true)
     try {
-      const saved = await sendMessage(item.id, body)
+      const saved = claimId ? await sendClaimMessage(claimId, body) : await sendMessage(item.id, body)
       setMessages((current) => [...current, saved])
       setDraft('')
       trackActivity('chat_message_sent', item.id, { textLength: body.length })

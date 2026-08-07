@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import { CheckCircle2, ClipboardList, PackageSearch, ShieldCheck, XCircle } from 'lucide-react'
+import { CheckCircle2, ClipboardList, MessageCircle, PackageSearch, ShieldCheck, XCircle } from 'lucide-react'
 import { GlassPanel, LaneTitle, useToast } from '../neo'
 import { fetchAdminClaims, reviewAdminClaim } from '../api'
 import type { AdminClaim, Claim, Item } from '../types'
+import AdminClaimChatModal from './AdminClaimChatModal'
 
 function ObjectList({
   title,
@@ -56,11 +57,12 @@ export default function AdminDashboard({ items = [], claims = [], onReviewComple
   const [pendingClaims, setPendingClaims] = useState<AdminClaim[]>([])
   const [loadingClaims, setLoadingClaims] = useState(true)
   const [reviewingId, setReviewingId] = useState<string | null>(null)
+  const [chatClaim, setChatClaim] = useState<AdminClaim | null>(null)
 
   const loadPendingClaims = async () => {
     setLoadingClaims(true)
     try {
-      setPendingClaims(await fetchAdminClaims('pending'))
+      setPendingClaims((await fetchAdminClaims()).filter((claim) => claim.status !== 'rejected'))
     } catch (error) {
       console.error('Failed to load pending claims:', error)
       push({ title: 'Claims unavailable', description: 'Could not load the approval queue.' })
@@ -77,7 +79,9 @@ export default function AdminDashboard({ items = [], claims = [], onReviewComple
     setReviewingId(claim.id)
     try {
       await reviewAdminClaim(claim.id, decision)
-      setPendingClaims((current) => current.filter((entry) => entry.id !== claim.id))
+      setPendingClaims((current) => decision === 'rejected'
+        ? current.filter((entry) => entry.id !== claim.id)
+        : current.map((entry) => entry.id === claim.id ? { ...entry, status: 'approved', stage: 'approved' } : entry))
       push({ title: `Claim ${decision}`, description: `${itemName} has been marked ${decision}.` })
       onReviewComplete?.()
     } catch (error: any) {
@@ -117,7 +121,7 @@ export default function AdminDashboard({ items = [], claims = [], onReviewComple
           </GlassPanel>
           <GlassPanel className="p-xl shadow-carve-sm">
             <p className="text-[10px] font-black uppercase tracking-[0.2em] text-ink-muted">Pending approvals</p>
-            <p className="mt-sm text-3xl font-black text-ink">{pendingClaims.length}</p>
+            <p className="mt-sm text-3xl font-black text-ink">{pendingClaims.filter((claim) => claim.status === 'pending').length}</p>
           </GlassPanel>
           <GlassPanel className="p-xl shadow-carve-sm">
             <p className="text-[10px] font-black uppercase tracking-[0.2em] text-ink-muted">Open objects</p>
@@ -128,8 +132,8 @@ export default function AdminDashboard({ items = [], claims = [], onReviewComple
         <GlassPanel className="flex flex-col gap-lg p-2xl shadow-extrude">
           <div className="flex flex-wrap items-center justify-between gap-md">
             <div>
-              <LaneTitle><span className="inline-flex items-center gap-sm"><ShieldCheck size={15} />Claim Approval Queue</span></LaneTitle>
-              <p className="mt-xs text-xs text-ink-muted">Compare the item, claimant, and proof of ownership before making a decision.</p>
+              <LaneTitle><span className="inline-flex items-center gap-sm"><ShieldCheck size={15} />Claim Approval &amp; Chat Queue</span></LaneTitle>
+              <p className="mt-xs text-xs text-ink-muted">Review pending claims, then continue secure handover chat for approved claims.</p>
             </div>
             <button type="button" onClick={loadPendingClaims} className="rounded-neo border border-line px-md py-sm text-[10px] font-black uppercase tracking-widest text-ink shadow-extrude-sm">Refresh</button>
           </div>
@@ -146,7 +150,7 @@ export default function AdminDashboard({ items = [], claims = [], onReviewComple
                     <div className="grid gap-lg lg:grid-cols-[1fr_1fr_1.4fr_auto] lg:items-center">
                       <div>
                         <p className="text-[10px] font-black uppercase tracking-widest text-ink-muted">Item</p>
-                        <p className="mt-xs text-sm font-black text-ink">{claim.item?.title || claim.itemId}</p>
+                        <p className="mt-xs text-sm font-black text-ink">{claim.item?.title || claim.itemId} <span className="ml-xs text-[9px] uppercase tracking-widest text-ink-muted">{claim.status}</span></p>
                         <p className="mt-xs text-xs text-ink-muted">{claim.item?.category || 'Item ID'} · {claim.item?.location || claim.itemId}</p>
                       </div>
                       <div>
@@ -159,8 +163,9 @@ export default function AdminDashboard({ items = [], claims = [], onReviewComple
                         <p className="mt-xs text-xs leading-relaxed text-ink-soft">{claim.proofDescription || 'No proof description supplied.'}</p>
                       </div>
                       <div className="flex flex-wrap gap-sm lg:flex-col">
-                        <button disabled={busy} type="button" onClick={() => reviewClaim(claim, 'approved')} className="inline-flex items-center justify-center gap-xs rounded-neo bg-ink px-lg py-md text-[10px] font-black uppercase tracking-widest text-on-ink shadow-float disabled:opacity-50"><CheckCircle2 size={14} />Accept</button>
-                        <button disabled={busy} type="button" onClick={() => reviewClaim(claim, 'rejected')} className="inline-flex items-center justify-center gap-xs rounded-neo border border-line px-lg py-md text-[10px] font-black uppercase tracking-widest text-ink shadow-extrude-sm disabled:opacity-50"><XCircle size={14} />Reject</button>
+                        <button type="button" onClick={() => setChatClaim(claim)} className="relative inline-flex items-center justify-center gap-xs rounded-neo border border-line px-lg py-md text-[10px] font-black uppercase tracking-widest text-ink shadow-extrude-sm"><MessageCircle size={14} />Open chat{claim.unreadMessageCount ? <span className="absolute -right-2 -top-2 flex size-5 items-center justify-center rounded-neo-full bg-ink text-[9px] text-on-ink">{claim.unreadMessageCount}</span> : null}</button>
+                        {claim.status === 'pending' ? <><button disabled={busy} type="button" onClick={() => reviewClaim(claim, 'approved')} className="inline-flex items-center justify-center gap-xs rounded-neo bg-ink px-lg py-md text-[10px] font-black uppercase tracking-widest text-on-ink shadow-float disabled:opacity-50"><CheckCircle2 size={14} />Accept</button>
+                        <button disabled={busy} type="button" onClick={() => reviewClaim(claim, 'rejected')} className="inline-flex items-center justify-center gap-xs rounded-neo border border-line px-lg py-md text-[10px] font-black uppercase tracking-widest text-ink shadow-extrude-sm disabled:opacity-50"><XCircle size={14} />Reject</button></> : null}
                       </div>
                     </div>
                   </article>
@@ -206,6 +211,13 @@ export default function AdminDashboard({ items = [], claims = [], onReviewComple
           QR tagging and suspicious-claim detection have been removed from the admin interface.
         </GlassPanel>
       </div>
+      <AdminClaimChatModal
+        claim={chatClaim}
+        onClose={() => setChatClaim(null)}
+        onRead={() => {
+          if (chatClaim) setPendingClaims((current) => current.map((claim) => claim.id === chatClaim.id ? { ...claim, unreadMessageCount: 0 } : claim))
+        }}
+      />
     </main>
   )
 }

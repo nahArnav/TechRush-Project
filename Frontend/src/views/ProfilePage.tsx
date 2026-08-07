@@ -20,6 +20,7 @@ export default function ProfilePage({
   const [userClaims, setUserClaims] = useState<Claim[]>([])
   const [userReports, setUserReports] = useState<Item[]>([])
   const [loading, setLoading] = useState(true)
+  const isAdmin = role === 'admin'
 
   useEffect(() => {
     async function loadProfileData() {
@@ -47,6 +48,10 @@ export default function ProfilePage({
     }
     loadProfileData()
   }, [])
+
+  useEffect(() => {
+    if (isAdmin) setActiveTab('claims')
+  }, [isAdmin])
 
   const formattedDate = new Date().toLocaleDateString('en-US', {
     month: 'short',
@@ -88,19 +93,21 @@ export default function ProfilePage({
         </GlassCard>
 
         <div className="flex flex-wrap gap-sm">
-          <NeoPill
-            active={activeTab === 'reports'}
-            iconStart={<Layers size={14} />}
-            onClick={() => setActiveTab('reports')}
-          >
-            My Reports ({userReports.length})
-          </NeoPill>
+          {!isAdmin ? (
+            <NeoPill
+              active={activeTab === 'reports'}
+              iconStart={<Layers size={14} />}
+              onClick={() => setActiveTab('reports')}
+            >
+              My Reports ({userReports.length})
+            </NeoPill>
+          ) : null}
           <NeoPill
             active={activeTab === 'claims'}
             iconStart={<FileText size={14} />}
             onClick={() => setActiveTab('claims')}
           >
-            My Claims ({userClaims.length})
+            {isAdmin ? 'Claims Status' : 'My Claims'} ({userClaims.length})
           </NeoPill>
         </div>
 
@@ -108,9 +115,11 @@ export default function ProfilePage({
           <GlassPanel className="p-3xl text-center shadow-extrude">
             <p className="animate-pulse text-sm font-bold text-ink-muted">Loading profile information...</p>
           </GlassPanel>
-        ) : activeTab === 'claims' ? (
+        ) : isAdmin || activeTab === 'claims' ? (
           <GlassPanel className="flex flex-col gap-lg p-2xl shadow-float">
-            <h2 className="text-xs font-black uppercase tracking-[0.2em] text-ink">Claims Made By You</h2>
+            <h2 className="text-xs font-black uppercase tracking-[0.2em] text-ink">
+              {isAdmin ? 'Claims Status' : 'Claims Made By You'}
+            </h2>
             {userClaims.length === 0 ? (
               <p className="py-xl text-center text-xs text-ink-muted">You have not submitted any item claims yet.</p>
             ) : (
@@ -118,7 +127,14 @@ export default function ProfilePage({
                 {userClaims.map((claim) => (
                   <div key={claim.id || claim.itemId} className="flex flex-col gap-md rounded-neo bg-plate p-xl shadow-carve-sm">
                     <div className="flex flex-wrap items-center justify-between gap-md">
-                      <p className="text-sm font-bold text-ink">Item ID: {claim.itemId}</p>
+                      <div className="min-w-0">
+                        <p className="break-words text-sm font-bold text-ink">
+                          {claim.itemTitle || `Item ${claim.itemId}`}
+                        </p>
+                        <p className="mt-xs text-[11px] font-medium uppercase tracking-[0.12em] text-ink-muted">
+                          Item ID: {claim.itemId}
+                        </p>
+                      </div>
                       <span className="rounded-neo-full border border-line px-md py-xs text-[10px] font-black uppercase tracking-widest text-ink-muted">
                         {claim.status}
                       </span>

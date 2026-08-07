@@ -225,6 +225,78 @@ async def admin_list_claims(
     return await store.list_admin_claims(status_filter)
 
 
+@app.get("/api/admin/claims/{claim_id}/messages", response_model=list[MessageOut])
+async def admin_list_claim_messages(
+    claim_id: str,
+    role: Annotated[Role, Depends(require_session)],
+) -> list[MessageOut]:
+    if role != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin role required")
+    messages = await store.list_claim_messages(claim_id, mark_read=True)
+    if messages is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Claim not found")
+    return messages
+
+
+@app.post("/api/admin/claims/{claim_id}/messages", response_model=MessageOut, status_code=status.HTTP_201_CREATED)
+async def admin_create_claim_message(
+    claim_id: str,
+    payload: MessageCreate,
+    role: Annotated[Role, Depends(require_session)],
+    credentials: Annotated[Optional[HTTPAuthorizationCredentials], Depends(security)] = None,
+) -> MessageOut:
+    if role != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin role required")
+    token_payload = store.decode_access_token(credentials.credentials) if credentials else None
+    message = await store.create_claim_message(claim_id, payload, token_payload.get("sub") if token_payload else None, role)
+    if message is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Claim not found")
+    return message
+
+
+def _claim_belongs_to_user(claim: dict, user_id: str | None) -> bool:
+    return bool(user_id and claim.get("claimer_id") == user_id)
+
+
+@app.get("/api/claims/{claim_id}/messages", response_model=list[MessageOut])
+async def user_list_claim_messages(
+    claim_id: str,
+    role: Annotated[Role, Depends(require_session)],
+    credentials: Annotated[Optional[HTTPAuthorizationCredentials], Depends(security)] = None,
+) -> list[MessageOut]:
+    if role == "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Use the admin claim messages endpoint")
+    payload = store.decode_access_token(credentials.credentials) if credentials else None
+    claim = await store.get_claim_doc(claim_id)
+    if not claim:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Claim not found")
+    if not _claim_belongs_to_user(claim, payload.get("sub") if payload else None):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Claim access denied")
+    return await store.list_claim_messages(claim_id)
+
+
+@app.post("/api/claims/{claim_id}/messages", response_model=MessageOut, status_code=status.HTTP_201_CREATED)
+async def user_create_claim_message(
+    claim_id: str,
+    message: MessageCreate,
+    role: Annotated[Role, Depends(require_session)],
+    credentials: Annotated[Optional[HTTPAuthorizationCredentials], Depends(security)] = None,
+) -> MessageOut:
+    if role == "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Use the admin claim messages endpoint")
+    token_payload = store.decode_access_token(credentials.credentials) if credentials else None
+    claim = await store.get_claim_doc(claim_id)
+    if not claim:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Claim not found")
+    sender_id = token_payload.get("sub") if token_payload else None
+    if not _claim_belongs_to_user(claim, sender_id):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Claim access denied")
+    saved = await store.create_claim_message(claim_id, message, sender_id, role)
+    if saved is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Claim not found")
+    return saved
+
+
 @app.patch("/api/admin/claims/{claim_id}/review", response_model=ClaimOut)
 @app.post("/api/admin/claims/{claim_id}/review", response_model=ClaimOut)
 async def review_claim(
