@@ -62,7 +62,7 @@ function labelTexture(text: string) {
   return texture
 }
 
-const CATEGORY_PIN_COLORS: Record<string, { three: number; css: string }> = {
+export const CATEGORY_PIN_COLORS: Record<string, { three: number; css: string }> = {
   Keys: { three: 0xfacc15, css: '#facc15' },
   'ID Card': { three: 0xec4899, css: '#ec4899' },
   'Government ID': { three: 0xec4899, css: '#ec4899' },
@@ -244,8 +244,9 @@ export default function CampusMap3D({
     const onPointerMove = (e: MouseEvent) => {
       setMouse(e)
       const hit = raycaster.intersectObjects(blockMeshes)[0]
-      if (hit) {
-        setHovered((hit.object.userData.block as CampusBlock).label)
+      const block = hit?.object.userData.block as CampusBlock | undefined
+      if (hit && block) {
+        setHovered(block.label)
         container.style.cursor = 'pointer'
       } else {
         setHovered(null)
@@ -261,8 +262,8 @@ export default function CampusMap3D({
         return
       }
       const blockHit = raycaster.intersectObjects(blockMeshes)[0]
-      if (blockHit) {
-        const block = blockHit.object.userData.block as CampusBlock
+      const block = blockHit?.object.userData.block as CampusBlock | undefined
+      if (blockHit && block) {
         chooseSpot(block.label, block.x, block.z)
       }
     }
@@ -271,9 +272,9 @@ export default function CampusMap3D({
       e.preventDefault()
       setMouse(e)
       const blockHit = raycaster.intersectObjects(blockMeshes)[0]
-      if (blockHit) {
-        const block = blockHit.object.userData.block as CampusBlock
-        chooseSpot(block.label, block.x, block.z)
+      const ctxBlock = blockHit?.object.userData.block as CampusBlock | undefined
+      if (blockHit && ctxBlock) {
+        chooseSpot(ctxBlock.label, ctxBlock.x, ctxBlock.z)
         return
       }
       raycaster.ray.intersectPlane(campusPlane, groundHit)

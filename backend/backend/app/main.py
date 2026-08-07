@@ -165,8 +165,17 @@ async def list_items(
 
 
 @app.post("/v1/items", response_model=ItemOut, status_code=status.HTTP_201_CREATED)
-async def create_item(payload: ItemCreate, _: Annotated[Role, Depends(require_session)]) -> ItemOut:
-    return await store.create_item(payload)
+async def create_item(
+    payload: ItemCreate,
+    _: Annotated[Role, Depends(require_session)],
+    credentials: Annotated[Optional[HTTPAuthorizationCredentials], Depends(security)] = None,
+) -> ItemOut:
+    user_id: str | None = None
+    if credentials:
+        token_payload = store.decode_access_token(credentials.credentials)
+        if token_payload and "sub" in token_payload:
+            user_id = token_payload["sub"]
+    return await store.create_item(payload, user_id)
 
 
 @app.get("/v1/items/{item_id}", response_model=ItemOut)
