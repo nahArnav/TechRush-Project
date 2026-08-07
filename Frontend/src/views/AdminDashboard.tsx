@@ -16,6 +16,7 @@ const FALLBACK_ITEMS: Item[] = [
     date: '2026-08-06',
     status: 'secured',
     matchScore: 0.95,
+    sightingCount: 0,
   },
 ]
 

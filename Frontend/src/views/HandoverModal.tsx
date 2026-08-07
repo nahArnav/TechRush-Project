@@ -1,23 +1,19 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
-import { Building2, Check, Clock, Landmark, MapPin, QrCode, ShieldCheck } from 'lucide-react'
+import { Building2, Check, Clock, Landmark, MapPin, QrCode, ShieldCheck, UserCheck } from 'lucide-react'
 import { NeoButton, NeoModal, NeoPill, SPRING } from '../neo'
 import type { Item } from '../types'
 import { trackActivity } from '../trackActivity'
 
-/*
- * Handover Verification (Features 7 & 15). A guided, safety-first exchange: pick a
- * monitored Safe Handover Zone, choose a time, then reveal a one-time 4-digit code
- * + stylised QR to confirm identity at the desk. Strictly monochrome, token-driven.
- */
 const ZONES = [
-  { id: 'security', label: 'Campus Security Office', hint: 'Staffed 24/7 · CCTV', icon: <ShieldCheck size={18} /> },
-  { id: 'library', label: 'Main Library Desk', hint: 'Open 8 AM – 10 PM', icon: <Landmark size={18} /> },
-  { id: 'admin', label: 'Admin Block Reception', hint: 'Open 9 AM – 6 PM', icon: <Building2 size={18} /> },
+  { id: 'security', label: 'Campus Security Office', hint: 'Staffed 24/7 with CCTV', icon: <ShieldCheck size={18} /> },
+  { id: 'library', label: 'Main Library Desk', hint: 'Open 8 AM - 10 PM', icon: <Landmark size={18} /> },
+  { id: 'admin', label: 'Admin Block Reception', hint: 'Open 9 AM - 6 PM', icon: <Building2 size={18} /> },
 ]
-const SLOTS = ['9–10 AM', '11–12 PM', '2–3 PM', '4–5 PM']
 
-// Deterministic monochrome QR-style plate keyed to the code.
+const SLOTS = ['9-10 AM', '11 AM-12 PM', '2-3 PM', '4-5 PM']
+const PIN_LENGTH = 6
+
 function QrPlate({ seed }: { seed: string }) {
   const n = 9
   const base = seed.split('').reduce((a, c) => a + c.charCodeAt(0), 11)
@@ -28,8 +24,8 @@ function QrPlate({ seed }: { seed: string }) {
     if (finder(0, 0) || finder(n - 3, 0) || finder(0, n - 3)) return (x + y) % 2 === 0
     return ((base * (x + 2) * (y + 3)) >> 1) % 3 === 0
   })
+
   return (
-    /* White wrapper keeps the black-on-white code sharp on dark glass (Directive 4B) */
     <div className="rounded-neo bg-white p-lg">
       <div className="grid gap-px" style={{ gridTemplateColumns: `repeat(${n}, 1fr)`, width: 108 }}>
         {cells.map((on, i) => (
@@ -40,9 +36,6 @@ function QrPlate({ seed }: { seed: string }) {
   )
 }
 
-const PIN_LENGTH = 6
-
-/* Digit-box PIN display / entry (Task 4B). Read-only when `value` is fixed. */
 function PinBoxes({
   value,
   onChange,
@@ -62,16 +55,17 @@ function PinBoxes({
             tone === 'dark' ? 'bg-white/10 text-on-ink' : 'bg-plate text-ink shadow-carve'
           }`}
         >
-          {d || <span className={tone === 'dark' ? 'text-on-ink-muted' : 'text-ink-muted'}>·</span>}
+          {d || <span className={tone === 'dark' ? 'text-on-ink-muted' : 'text-ink-muted'}>.</span>}
         </span>
       ))}
     </div>
   )
+
   if (!onChange) return boxes
+
   return (
     <label className="relative block">
       {boxes}
-      {/* A single invisible field drives all six boxes — keeps mobile keyboards happy. */}
       <input
         value={value}
         onChange={(e) => onChange(e.target.value.replace(/\D/g, '').slice(0, PIN_LENGTH))}
@@ -91,15 +85,17 @@ export default function HandoverModal({ item, onClose }: { item: Item | null; on
   const [code, setCode] = useState<string | null>(null)
 
   const confirmed = code !== null
+  const zoneLabel = ZONES.find((z) => z.id === zone)?.label
+
   const reveal = () => {
     const generated = String(Math.floor(100000 + Math.random() * 900000))
     setCode(generated)
     trackActivity('handover_code_generated', item?.id, { zone, slot, role: side })
   }
+
   const close = () => {
     onClose()
-    // reset after the exit animation so the next open starts clean
-    setTimeout(() => {
+    window.setTimeout(() => {
       setZone('')
       setSlot('')
       setSide('finder')
@@ -108,14 +104,11 @@ export default function HandoverModal({ item, onClose }: { item: Item | null; on
     }, 250)
   }
 
-  const zoneLabel = ZONES.find((z) => z.id === zone)?.label
-
   return (
     <NeoModal isOpen={!!item} onClose={close} icon={<ShieldCheck size={24} />} title="Verify the handover">
       <div className="flex flex-col gap-xl">
         {!confirmed ? (
           <>
-            {/* Step 1 — Safe Handover Zones */}
             <section className="flex flex-col gap-md">
               <p className="flex items-center gap-sm text-[11px] font-black uppercase tracking-[0.2em] text-ink">
                 <MapPin size={13} /> Safe handover zones
@@ -146,7 +139,6 @@ export default function HandoverModal({ item, onClose }: { item: Item | null; on
               </div>
             </section>
 
-            {/* Step 2 — Meeting time */}
             <section className="flex flex-col gap-md">
               <p className="flex items-center gap-sm text-[11px] font-black uppercase tracking-[0.2em] text-ink">
                 <Clock size={13} /> Meeting time
@@ -160,15 +152,16 @@ export default function HandoverModal({ item, onClose }: { item: Item | null; on
               </div>
             </section>
 
-            {/* Step 3 — who is at the desk decides which OTP affordance shows */}
             <section className="flex flex-col gap-md">
-              <p className="text-[11px] font-black uppercase tracking-[0.2em] text-ink">Your role</p>
+              <p className="flex items-center gap-sm text-[11px] font-black uppercase tracking-[0.2em] text-ink">
+                <UserCheck size={13} /> Your role
+              </p>
               <div className="flex flex-wrap gap-sm">
                 <NeoPill active={side === 'finder'} onClick={() => setSide('finder')}>
                   I found the item
                 </NeoPill>
                 <NeoPill active={side === 'seeker'} onClick={() => setSide('seeker')}>
-                  I’m claiming it
+                  I am claiming it
                 </NeoPill>
               </div>
             </section>
@@ -196,7 +189,6 @@ export default function HandoverModal({ item, onClose }: { item: Item | null; on
             )}
           </>
         ) : (
-          /* Step 3 — One-time verification */
           <motion.section
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
@@ -213,7 +205,7 @@ export default function HandoverModal({ item, onClose }: { item: Item | null; on
             </div>
             <p className="text-[11px] leading-relaxed text-on-ink-muted">
               Show this at <span className="font-bold text-on-ink">{zoneLabel}</span> at{' '}
-              <span className="font-bold text-on-ink">{slot}</span> to release “{item?.title}”.
+              <span className="font-bold text-on-ink">{slot}</span> to release "{item?.title}".
             </p>
             <button
               type="button"
@@ -223,7 +215,7 @@ export default function HandoverModal({ item, onClose }: { item: Item | null; on
               }}
               className="mt-sm flex w-full items-center justify-center gap-sm rounded-neo-full bg-status-found px-xl py-md text-sm font-bold text-white shadow-float transition-opacity hover:opacity-90"
             >
-              <Check size={15} /> Confirm match &amp; close case
+              <Check size={15} /> Confirm match and close case
             </button>
           </motion.section>
         )}

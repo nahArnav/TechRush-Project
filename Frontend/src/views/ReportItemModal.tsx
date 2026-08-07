@@ -1,21 +1,12 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { AlertTriangle, Camera, Check, Sparkles, UploadCloud } from 'lucide-react'
 import { NeoButton, NeoInput, NeoModal, NeoPill, NeoSelect, NeoToggle, useToast } from '../neo'
 import { CATEGORY_NAMES, isSensitive } from '../types'
 import { trackActivity } from '../trackActivity'
 import { createItem, suggestReportDetails } from '../api'
 
-/*
- * Smart reporting flow (Features 11, 1, 21, 13, 16). Photo → simulated AI fills
- * category + brand; dynamic Device Color for electronics; sensitive items and
- * duplicate detection raise a stark BLACK-GLASS warning modal (no red anywhere).
- *
- * Layout (Task 1): a wide desktop frame, a fill-container drop zone with a fixed
- * 160px height, a two-column field grid, a full-width description, an inline
- * anonymous toggle, and a submit CTA anchored in the sticky modal footer.
- */
 const CATEGORY_OPTIONS = [
-  { value: '', label: 'Select a category…' },
+  { value: '', label: 'Select a category...' },
   ...CATEGORY_NAMES.map((c) => ({ value: c, label: c })),
   { value: 'ID Card', label: 'ID Card' },
 ]
@@ -27,7 +18,6 @@ const FLOOR_OPTIONS = [
   { value: '3rd', label: '3rd floor' },
 ]
 
-/* Sent by the campus map's right-click "report here" menu (Task 2D). */
 export type ReportPrefill = {
   type: 'lost' | 'found'
   building: string
@@ -42,7 +32,7 @@ export type ReportPrefill = {
 
 type Warning = null | 'sensitive' | 'duplicate'
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <label className="flex flex-col gap-sm">
       <span className="text-[10px] font-black uppercase tracking-[0.2em] text-ink-muted">{label}</span>
@@ -74,7 +64,6 @@ export default function ReportItemModal({
   const [anonymous, setAnonymous] = useState(false)
   const [warning, setWarning] = useState<Warning>(null)
   const [submitted, setSubmitted] = useState(false)
-
   const [reportType, setReportType] = useState<'lost' | 'found'>('lost')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
@@ -82,7 +71,6 @@ export default function ReportItemModal({
   const isDevice = category === 'Electronics' || category === 'Phone'
   const sensitive = isSensitive(category)
 
-  // Prefill building / floor / coordinates when opened from the map hotspot menu.
   useEffect(() => {
     if (!isOpen || !prefill) return
     if (prefill.type) setReportType(prefill.type)
@@ -94,6 +82,9 @@ export default function ReportItemModal({
     if (prefill.description) setDescription(prefill.description)
     if (prefill.brand) setBrand(prefill.brand)
     if (prefill.color) setColor(prefill.color)
+    if (prefill.category || prefill.title || prefill.description || prefill.brand || prefill.color) {
+      setAnalyzed(true)
+    }
   }, [isOpen, prefill])
 
   const reset = () => {
@@ -148,8 +139,7 @@ export default function ReportItemModal({
     setError('')
     try {
       const today = new Date().toISOString().split('T')[0]
-      const locationStr = building ? `${building}, ${spot || floor}` : (spot || 'Campus Quad')
-      
+      const locationStr = building ? `${building}, ${spot || floor}` : spot || 'Campus Quad'
       const created = await createItem({
         type: reportType,
         category: category || 'Other',
@@ -177,7 +167,8 @@ export default function ReportItemModal({
   const submit = () => {
     if (sensitive) {
       trackActivity('report_submitted', undefined, { category, title, status: 'warning_sensitive' })
-      return setWarning('sensitive')
+      setWarning('sensitive')
+      return
     }
     handleFinalSubmit()
   }
@@ -189,7 +180,7 @@ export default function ReportItemModal({
         onClose={close}
         size="full"
         icon={<Camera size={18} />}
-        title={prefill ? `Report ${prefill.type} item — ${prefill.building}` : 'Report an item'}
+        title={prefill ? `Report ${prefill.type} item - ${prefill.building}` : 'Report an item'}
         subtitle="Add details manually or let AI draft the report"
         footer={
           <>
@@ -197,7 +188,7 @@ export default function ReportItemModal({
               Cancel
             </NeoButton>
             <NeoButton variant="dark" disabled={!category || !title || submitting} onClick={submit}>
-              {submitting ? 'Submitting…' : 'Submit report'}
+              {submitting ? 'Submitting...' : 'Submit report'}
             </NeoButton>
           </>
         }
@@ -205,7 +196,7 @@ export default function ReportItemModal({
         <div className="mx-auto grid w-full max-w-6xl grid-cols-1 gap-2xl lg:grid-cols-[minmax(280px,0.9fr)_minmax(420px,1.4fr)]">
           {error ? (
             <div className="rounded-neo border border-line bg-plate px-lg py-md text-xs font-medium text-ink shadow-carve-sm lg:col-span-2">
-              ⚠️ {error}
+              {error}
             </div>
           ) : null}
 
@@ -261,7 +252,7 @@ export default function ReportItemModal({
               <Field label="Exact location">
                 <NeoInput value={spot} onChange={setSpot} placeholder="e.g. near the printers" />
               </Field>
-              <Field label="Date & time">
+              <Field label="Date and time">
                 <NeoInput type="datetime-local" value={when} onChange={setWhen} />
               </Field>
 
@@ -269,7 +260,7 @@ export default function ReportItemModal({
                 <NeoInput value={brand} onChange={setBrand} placeholder="e.g. Apple" />
               </Field>
               {isDevice ? (
-                <Field label="Device colour">
+                <Field label="Device color">
                   <NeoInput value={color} onChange={setColor} placeholder="e.g. Space grey" />
                 </Field>
               ) : null}
@@ -279,7 +270,7 @@ export default function ReportItemModal({
               <textarea
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
-                placeholder="Distinguishing marks, stickers, contents — anything that helps identify it."
+                placeholder="Distinguishing marks, stickers, contents - anything that helps identify it."
                 className="min-h-36 w-full resize-y rounded-neo bg-plate px-lg py-md text-sm text-ink shadow-carve placeholder:text-ink-muted focus:outline-none"
               />
             </Field>
@@ -295,7 +286,6 @@ export default function ReportItemModal({
         </div>
       </NeoModal>
 
-      {/* Stark black-glass warning (Features 16 & 21) — pure white border + icon */}
       <NeoModal
         isOpen={warning !== null}
         onClose={() => setWarning(null)}
@@ -328,9 +318,8 @@ export default function ReportItemModal({
         </p>
       </NeoModal>
 
-      {/* Success */}
       <NeoModal isOpen={submitted} onClose={close} icon={<Check size={26} />} title="Report submitted">
-        <p className="text-center text-sm">We’ll alert you the moment a match appears.</p>
+        <p className="text-center text-sm">We will alert you the moment a match appears.</p>
         <div className="mt-2xl flex justify-center">
           <NeoButton onClick={close}>Done</NeoButton>
         </div>

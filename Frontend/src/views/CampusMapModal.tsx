@@ -3,7 +3,7 @@ import { Compass, Box } from 'lucide-react'
 import { NeoModal } from '../neo'
 import type { ReportPrefill } from './ReportItemModal'
 import type { Item } from '../types'
-import CampusMap3D from './CampusMap3D'
+import CampusMap3D, { CATEGORY_PIN_COLORS } from './CampusMap3D'
 import { fetchItems } from '../api'
 
 export default function CampusMapModal({
@@ -46,7 +46,6 @@ export default function CampusMapModal({
       subtitle="Drag to rotate, scroll to zoom, click a building or right-click anywhere to add a report pin"
     >
       <div className="relative flex min-h-[640px] w-full flex-col gap-lg">
-        {/* Top Info Bar */}
         <div className="flex flex-wrap items-center justify-between gap-md rounded-neo bg-plate p-md shadow-carve-sm">
           <div className="flex items-center gap-md text-xs font-bold text-ink">
             <span className="flex items-center gap-xs rounded-neo-full bg-ink px-md py-xs text-[10px] font-black uppercase text-on-ink">
@@ -56,16 +55,14 @@ export default function CampusMapModal({
           </div>
 
           <div className="flex items-center gap-sm text-xs text-ink-muted">
-            <span className="flex items-center gap-xs">
-              <span className="size-2 rounded-neo-full bg-emerald-500" /> Found Pin
-            </span>
-            <span className="flex items-center gap-xs">
-              <span className="size-2 rounded-neo-full bg-amber-500" /> Lost Pin
-            </span>
+            {Object.entries(CATEGORY_PIN_COLORS).slice(0, 4).map(([category, color]) => (
+              <span key={category} className="flex items-center gap-xs">
+                <span className="size-2 rounded-neo-full" style={{ backgroundColor: color.css }} /> {category}
+              </span>
+            ))}
           </div>
         </div>
 
-        {/* 3D Map Component */}
         <div className="h-[640px] w-full overflow-hidden rounded-neo-lg border border-line shadow-float">
           <CampusMap3D
             items={items}

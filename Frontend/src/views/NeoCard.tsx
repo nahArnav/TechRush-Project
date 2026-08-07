@@ -6,13 +6,6 @@ import WorkflowTracker from './WorkflowTracker'
 import { trackActivity } from '../trackActivity'
 import { toggleSawThis } from '../api'
 
-/*
- * The discovery unit. Three states, all strictly grayscale:
- *   variant "ai"     → inverted dark glass, high contrast (AI Matches lane)
- *   Campus ID item   → locked + heavily blurred with a B/W private-match banner (F22)
- *   default          → light glass card with movement timeline (F19) + community
- *                       confirmation pill "I saw this item" (F28)
- */
 export default function NeoCard({
   item,
   claim,
@@ -30,9 +23,6 @@ export default function NeoCard({
 }) {
   const ai = variant === 'ai'
   const { theme } = useTheme()
-  // In dark mode the AI card re-skins to dark glass; in light mode it is a soft
-  // light surface. `aiDark` drives the theme-conditional controls (buttons,
-  // tracker chrome). All text/colour uses the theme-aware `ai-*` tokens.
   const aiDark = ai && theme === 'dark'
   const [confirmed, setConfirmed] = useState(false)
   const [confirms, setConfirms] = useState(item.sightingCount ?? 0)
@@ -69,7 +59,7 @@ export default function NeoCard({
       setSightingLoading(false)
     }
   }
-  // Automatic ID match (Feature 22): locked, blurred, owner-notified.
+
   if (isCampusId(item.category)) {
     return (
       <GlassCard className="relative w-72 shrink-0 overflow-hidden p-xl">
@@ -99,12 +89,10 @@ export default function NeoCard({
     )
   }
 
-  // Non-AI cards keep the existing light glass identity; AI cards swap to the
-  // theme-aware `ai-*` tokens (soft light surface in light, dark glass in dark).
   const shell = ai ? 'text-ai-ink' : 'text-ink'
   const muted = ai ? 'text-ai-ink-muted' : 'text-ink-muted'
 
-  const Body = (
+  const body = (
     <>
       <div className="flex items-start justify-between gap-md">
         <div className="flex min-w-0 items-center gap-md">
@@ -137,14 +125,16 @@ export default function NeoCard({
           <NeoPill
             className="w-full justify-center whitespace-normal text-center leading-tight"
             iconStart={<MessageSquare className="shrink-0" size={13} />}
-            onClick={() => { trackActivity('chat_opened', item.id); onChat?.(item) }}
+            onClick={() => {
+              trackActivity('chat_opened', item.id)
+              onChat?.(item)
+            }}
           >
             Safe chat &amp; handover
           </NeoPill>
         </div>
       ) : (
         <div className="flex min-w-0 items-center justify-between gap-md">
-          {/* Community confirmation (Feature 28) */}
           <NeoPill
             className="shrink-0"
             active={confirmed}
@@ -152,14 +142,21 @@ export default function NeoCard({
             onClick={handleSawThis}
             disabled={sightingLoading}
           >
-            I saw this · {confirms}
+            I saw this - {confirms}
           </NeoPill>
           {isOwner ? (
             <span className={`inline-flex min-h-9 min-w-0 flex-1 items-center justify-center rounded-neo-full px-md py-sm text-center text-[10px] font-black uppercase leading-tight tracking-[0.12em] ${ai ? 'border border-ai-border bg-ai-surface text-ai-ink' : 'bg-plate text-ink-muted shadow-carve-sm'}`}>
               You reported this item
             </span>
           ) : (
-            <NeoButton variant={aiDark ? 'dark' : 'raised'} size="sm" onClick={() => { trackActivity('claim_opened', item.id); onClaim(item) }}>
+            <NeoButton
+              variant={aiDark ? 'dark' : 'raised'}
+              size="sm"
+              onClick={() => {
+                trackActivity('claim_opened', item.id)
+                onClaim(item)
+              }}
+            >
               Claim
             </NeoButton>
           )}
@@ -173,12 +170,12 @@ export default function NeoCard({
       <div
         className={`flex w-72 shrink-0 flex-col gap-lg rounded-neo-lg border border-ai-border bg-ai-surface p-xl shadow-glass-lg backdrop-blur-2xl ${shell}`}
       >
-        {Body}
+        {body}
       </div>
     )
   }
 
   return (
-    <GlassCard className={`flex w-72 shrink-0 flex-col gap-lg p-xl ${shell}`}>{Body}</GlassCard>
+    <GlassCard className={`flex w-72 shrink-0 flex-col gap-lg p-xl ${shell}`}>{body}</GlassCard>
   )
 }

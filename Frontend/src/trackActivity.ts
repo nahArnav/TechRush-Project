@@ -34,6 +34,10 @@ export type ActivityAction =
   | 'item_viewed'
   | 'photo_analyzed'
   | 'photo_attached'
+  | 'camera_permission_granted'
+  | 'microphone_permission_granted'
+  | 'staff_photo_captured'
+  | 'voice_recording_started'
   | 'camera_report_drafted'
   | 'microphone_report_drafted'
 
