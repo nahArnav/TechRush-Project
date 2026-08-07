@@ -35,13 +35,10 @@ export default function ProfilePage({
             .filter((act: any) => act.action === 'report_submitted' && act.item_id)
             .map((act: any) => act.item_id),
         )
-        const claimIds = new Set(
-          (acts || [])
-            .filter((act: any) => act.action === 'claim_submitted' && act.item_id)
-            .map((act: any) => act.item_id),
-        )
         setUserReports((items || []).filter((item) => reportIds.has(item.id)))
-        setUserClaims((claims || []).filter((claim) => claimIds.has(claim.itemId)))
+        // The API scopes this list to the signed-in claimant, so decisions are
+        // reflected immediately without relying on a separately logged event.
+        setUserClaims(claims || [])
       } catch (err) {
         console.error('Failed to load profile data:', err)
       } finally {
@@ -123,7 +120,7 @@ export default function ProfilePage({
                     <div className="flex flex-wrap items-center justify-between gap-md">
                       <p className="text-sm font-bold text-ink">Item ID: {claim.itemId}</p>
                       <span className="rounded-neo-full border border-line px-md py-xs text-[10px] font-black uppercase tracking-widest text-ink-muted">
-                        {claim.claimantRole}
+                        {claim.status}
                       </span>
                     </div>
                     <WorkflowTracker stage={claim.stage} />

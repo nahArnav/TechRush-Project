@@ -3,13 +3,15 @@ from __future__ import annotations
 from typing import Annotated, Any, Literal, Optional, Union
 
 from bson import ObjectId
-from pydantic import BaseModel, ConfigDict, Field, GetJsonSchemaHandler
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, GetJsonSchemaHandler
 from pydantic.json_schema import JsonSchemaValue
 from pydantic_core import core_schema
 
 ItemType = Literal["lost", "found"]
-ItemStatus = Literal["open", "in_review", "secured", "escalated", "closed"]
-ClaimStage = Literal["submitted", "review", "approved"]
+ItemStatus = Literal["open", "in_review", "secured", "escalated", "claimed", "closed"]
+ClaimStatus = Literal["pending", "approved", "rejected"]
+# Retained for the legacy stage endpoint and existing clients.
+ClaimStage = Literal["submitted", "review", "approved", "rejected"]
 Role = Literal["student", "staff", "admin"]
 SecurityLevel = Literal["public", "staff", "security"]
 ZoneKind = Literal["building", "ground", "service"]
@@ -113,11 +115,16 @@ class ItemSightingOut(BaseModel):
 # ---------------------------------------------------------------------------
 class ClaimCreate(BaseModel):
     item_id: str
-    proof: str = Field(min_length=10, max_length=1200)
+    proof: str = Field(min_length=10, max_length=1200, validation_alias=AliasChoices("proof", "proof_description"))
 
 
 class ClaimStageUpdate(BaseModel):
     stage: ClaimStage
+
+
+class ClaimReview(BaseModel):
+    status: Literal["approved", "rejected"]
+    admin_notes: str = Field(default="", max_length=1200)
 
 
 class ClaimOut(BaseModel):
@@ -125,10 +132,19 @@ class ClaimOut(BaseModel):
 
     id: str
     item_id: str
+    claimer_id: Optional[str] = None
+    claimer_email: Optional[str] = None
+    proof_description: str
+    status: ClaimStatus
     stage: ClaimStage
     claimant_role: Role
     proof_submitted: bool
     created_at: str
+    admin_notes: Optional[str] = None
+
+
+class AdminClaimOut(ClaimOut):
+    item: Optional[ItemOut] = None
 
 
 # ---------------------------------------------------------------------------

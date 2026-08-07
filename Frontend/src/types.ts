@@ -1,5 +1,5 @@
 export type ItemType = 'lost' | 'found'
-export type ItemStatus = 'open' | 'in_review' | 'secured' | 'escalated' | 'closed'
+export type ItemStatus = 'open' | 'in_review' | 'secured' | 'escalated' | 'claimed' | 'closed'
 
 export type Item = {
   id: string
@@ -71,6 +71,7 @@ export const STATUS_LABELS: Record<ItemStatus, string> = {
   in_review: 'In review',
   secured: 'Secured',
   escalated: 'Escalated',
+  claimed: 'Claimed',
   closed: 'Closed',
 }
 
@@ -80,23 +81,32 @@ export const STATUS_TONE: Record<ItemStatus, BadgeTone> = {
   in_review: 'brand',
   secured: 'success',
   escalated: 'danger',
+  claimed: 'success',
   closed: 'neutral',
 }
 
-export type ClaimStage = 'submitted' | 'review' | 'approved'
+export type ClaimStatus = 'pending' | 'approved' | 'rejected'
+export type ClaimStage = ClaimStatus
 export const CLAIM_STAGES: { id: ClaimStage; label: string }[] = [
-  { id: 'submitted', label: 'Submitted' },
-  { id: 'review', label: 'Review' },
+  { id: 'pending', label: 'Pending' },
   { id: 'approved', label: 'Approved' },
+  { id: 'rejected', label: 'Rejected' },
 ]
 
 export type Claim = {
   id: string
   itemId: string
+  claimerId?: string
+  claimerEmail?: string
+  proofDescription?: string
+  status: ClaimStatus
   stage: ClaimStage
   claimantRole: Role
   createdAt: string
+  adminNotes?: string
 }
+
+export type AdminClaim = Claim & { item?: Item }
 
 export const SENSITIVE_CATEGORIES = ['Government ID', 'Medicine', 'ID Card']
 

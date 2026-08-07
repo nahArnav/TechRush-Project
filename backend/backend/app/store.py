@@ -25,6 +25,7 @@ from .models import (
     CampusZone,
     ClaimCreate,
     ClaimOut,
+    AdminClaimOut,
     ClaimStage,
     CctvRequestCreate,
     CctvRequestOut,
@@ -159,13 +160,20 @@ def _doc_to_item(doc: dict) -> ItemOut:
 
 
 def _doc_to_claim(doc: dict) -> ClaimOut:
+    claim_status = doc.get("status") or ("approved" if doc.get("stage") == "approved" else "rejected" if doc.get("stage") == "rejected" else "pending")
+    stage = doc.get("stage") or ("approved" if claim_status == "approved" else "rejected" if claim_status == "rejected" else "review")
     return ClaimOut(
         id=str(doc["_id"]),
         item_id=doc["item_id"],
-        stage=doc["stage"],
+        claimer_id=doc.get("claimer_id"),
+        claimer_email=doc.get("claimer_email"),
+        proof_description=doc.get("proof_description", doc.get("proof", "")),
+        status=claim_status,
+        stage=stage,
         claimant_role=doc["claimant_role"],
-        proof_submitted=bool(doc.get("proof")),
+        proof_submitted=bool(doc.get("proof_description", doc.get("proof"))),
         created_at=doc["created_at"],
+        admin_notes=doc.get("admin_notes"),
     )
 
 
@@ -219,8 +227,11 @@ async def init_db() -> None:
                 "_id": ObjectId(),
                 "item_id": "LF-1043",
                 "stage": "review",
+                "status": "pending",
                 "claimant_role": "student",
-                "proof": "Sleeve has a small tear near the zipper.",
+                "claimer_id": "demo-student",
+                "claimer_email": "student@demo.local",
+                "proof_description": "Sleeve has a small tear near the zipper.",
                 "created_at": utc_now(),
             }]
             _memory_ready = True
@@ -231,6 +242,11 @@ async def init_db() -> None:
     await database.db.items.update_many({"sighting_count": {"$exists": False}}, {"$set": {"sighting_count": 0}})
     await database.db.items.update_many({"sighted_by_user_ids": {"$exists": False}}, {"$set": {"sighted_by_user_ids": []}})
     await database.db.claims.create_index("item_id")
+    await database.db.claims.create_index([("status", 1), ("created_at", -1)])
+    # Treat pre-workflow claims as pending so they remain reviewable after deployment.
+    await database.db.claims.update_many({"status": {"$exists": False}}, {"$set": {"status": "pending"}})
+    await database.db.claims.update_many({"stage": "approved"}, {"$set": {"status": "approved"}})
+    await database.db.claims.update_many({"stage": "rejected"}, {"$set": {"status": "rejected"}})
     await database.db.sessions.create_index("token", unique=True)
 
     if await database.db.items.count_documents({}) == 0:
@@ -245,8 +261,11 @@ async def _seed_items() -> None:
     await database.db.claims.insert_one({
         "item_id": "LF-1043",
         "stage": "review",
+        "status": "pending",
         "claimant_role": "student",
-        "proof": "Sleeve has a small tear near the zipper.",
+        "claimer_id": "demo-student",
+        "claimer_email": "student@demo.local",
+        "proof_description": "Sleeve has a small tear near the zipper.",
         "created_at": utc_now(),
     })
 
@@ -452,18 +471,20 @@ async def toggle_item_sighting(item_id: str, user_id: str) -> Optional[ItemSight
 # ---------------------------------------------------------------------------
 # Claim CRUD
 # ---------------------------------------------------------------------------
-async def list_claims() -> list[ClaimOut]:
+async def list_claims(claimer_id: str | None = None) -> list[ClaimOut]:
     if database.db is None:
         docs = [doc.copy() for doc in _memory_claims]
+        if claimer_id:
+            docs = [doc for doc in docs if doc.get("claimer_id") == claimer_id]
         docs.sort(key=lambda doc: doc["created_at"], reverse=True)
         return [_doc_to_claim(doc) for doc in docs[:500]]
 
-    cursor = database.db.claims.find().sort([("created_at", -1)])
+    cursor = database.db.claims.find({"claimer_id": claimer_id} if claimer_id else {}).sort([("created_at", -1)])
     docs = await cursor.to_list(length=500)
     return [_doc_to_claim(doc) for doc in docs]
 
 
-async def create_claim(payload: ClaimCreate, role: Role) -> Optional[ClaimOut]:
+async def create_claim(payload: ClaimCreate, role: Role, claimer_id: str | None = None, claimer_email: str | None = None) -> Optional[ClaimOut]:
     if database.db is None:
         item = next((doc for doc in _memory_items if doc["id"] == payload.item_id), None)
         if not item:
@@ -472,9 +493,12 @@ async def create_claim(payload: ClaimCreate, role: Role) -> Optional[ClaimOut]:
         doc = {
             "_id": ObjectId(),
             "item_id": payload.item_id,
-            "stage": "submitted",
+            "stage": "review",
+            "status": "pending",
             "claimant_role": role,
-            "proof": payload.proof,
+            "claimer_id": claimer_id,
+            "claimer_email": claimer_email,
+            "proof_description": payload.proof,
             "created_at": utc_now(),
         }
         _memory_claims.append(doc)
@@ -489,9 +513,12 @@ async def create_claim(payload: ClaimCreate, role: Role) -> Optional[ClaimOut]:
     now = utc_now()
     result = await database.db.claims.insert_one({
         "item_id": payload.item_id,
-        "stage": "submitted",
+        "stage": "review",
+        "status": "pending",
         "claimant_role": role,
-        "proof": payload.proof,
+        "claimer_id": claimer_id,
+        "claimer_email": claimer_email,
+        "proof_description": payload.proof,
         "created_at": now,
     })
 
@@ -513,21 +540,87 @@ async def update_claim_stage(claim_id: str, stage: ClaimStage) -> Optional[Claim
         if not doc:
             return None
         doc["stage"] = stage
+        doc["status"] = "approved" if stage == "approved" else "rejected" if stage == "rejected" else "pending"
         if stage == "approved":
             item = next((item for item in _memory_items if item["id"] == doc["item_id"]), None)
             if item:
-                item["status"] = "closed"
+                item["status"] = "claimed"
         return _doc_to_claim(doc)
 
     doc = await database.db.claims.find_one({"_id": oid})
     if not doc:
         return None
 
-    await database.db.claims.update_one({"_id": oid}, {"$set": {"stage": stage}})
+    claim_status = "approved" if stage == "approved" else "rejected" if stage == "rejected" else "pending"
+    await database.db.claims.update_one({"_id": oid}, {"$set": {"stage": stage, "status": claim_status}})
 
     if stage == "approved":
-        await database.db.items.update_one({"id": doc["item_id"]}, {"$set": {"status": "closed"}})
+        await database.db.items.update_one({"id": doc["item_id"]}, {"$set": {"status": "claimed"}})
 
+    updated = await database.db.claims.find_one({"_id": oid})
+    return _doc_to_claim(updated)
+
+
+async def list_admin_claims(status_filter: str | None = None) -> list[AdminClaimOut]:
+    if database.db is None:
+        docs = [doc.copy() for doc in _memory_claims]
+        if status_filter:
+            docs = [doc for doc in docs if (doc.get("status") or "pending") == status_filter]
+        docs.sort(key=lambda doc: doc["created_at"], reverse=True)
+        items_by_id = {item["id"]: item for item in _memory_items}
+        return [AdminClaimOut(**_doc_to_claim(doc).model_dump(), item=_doc_to_item(items_by_id[doc["item_id"]]) if doc["item_id"] in items_by_id else None) for doc in docs[:500]]
+
+    query = {"status": status_filter} if status_filter else {}
+    docs = await database.db.claims.find(query).sort([("created_at", -1)]).to_list(length=500)
+    result: list[AdminClaimOut] = []
+    for doc in docs:
+        item_doc = await database.db.items.find_one({"id": doc["item_id"]})
+        result.append(AdminClaimOut(**_doc_to_claim(doc).model_dump(), item=_doc_to_item(item_doc) if item_doc else None))
+    return result
+
+
+async def review_claim(claim_id: str, claim_status: str, admin_notes: str) -> Optional[ClaimOut]:
+    try:
+        oid = ObjectId(claim_id)
+    except Exception:
+        return None
+
+    stage = "approved" if claim_status == "approved" else "rejected"
+    updates = {"status": claim_status, "stage": stage, "admin_notes": admin_notes}
+    if database.db is None:
+        doc = next((claim for claim in _memory_claims if claim["_id"] == oid), None)
+        if not doc:
+            return None
+        doc.update(updates)
+        if claim_status == "approved":
+            item = next((item for item in _memory_items if item["id"] == doc["item_id"]), None)
+            if item:
+                item["status"] = "claimed"
+        else:
+            has_pending_claim = any(
+                claim["_id"] != oid and claim["item_id"] == doc["item_id"] and (claim.get("status") or "pending") == "pending"
+                for claim in _memory_claims
+            )
+            if not has_pending_claim:
+                item = next((item for item in _memory_items if item["id"] == doc["item_id"]), None)
+                if item and item["status"] == "in_review":
+                    item["status"] = "open"
+        return _doc_to_claim(doc)
+
+    doc = await database.db.claims.find_one({"_id": oid})
+    if not doc:
+        return None
+    await database.db.claims.update_one({"_id": oid}, {"$set": updates})
+    if claim_status == "approved":
+        await database.db.items.update_one({"id": doc["item_id"]}, {"$set": {"status": "claimed"}})
+    else:
+        has_pending_claim = await database.db.claims.count_documents({
+            "item_id": doc["item_id"], "status": "pending", "_id": {"$ne": oid},
+        }) > 0
+        if not has_pending_claim:
+            await database.db.items.update_one(
+                {"id": doc["item_id"], "status": "in_review"}, {"$set": {"status": "open"}},
+            )
     updated = await database.db.claims.find_one({"_id": oid})
     return _doc_to_claim(updated)
 

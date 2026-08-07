@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from contextlib import asynccontextmanager
-from typing import Annotated, Optional
+from typing import Annotated, Literal, Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -18,7 +18,9 @@ from .models import (
     AnalyticsSummary,
     CampusMapOut,
     ClaimCreate,
+    ClaimReview,
     ClaimOut,
+    AdminClaimOut,
     ClaimStageUpdate,
     CctvRequestCreate,
     CctvRequestOut,
@@ -190,15 +192,51 @@ async def get_item(item_id: str) -> ItemOut:
 # Claim endpoints
 # ---------------------------------------------------------------------------
 @app.get("/v1/claims", response_model=list[ClaimOut])
-async def list_claims(_: Annotated[Role, Depends(require_session)]) -> list[ClaimOut]:
-    return await store.list_claims()
+async def list_claims(
+    role: Annotated[Role, Depends(require_session)],
+    credentials: Annotated[Optional[HTTPAuthorizationCredentials], Depends(security)] = None,
+) -> list[ClaimOut]:
+    token_payload = store.decode_access_token(credentials.credentials) if credentials else None
+    claimer_id = token_payload.get("sub") if token_payload else None
+    # Only administrators can see all claims through this legacy endpoint.
+    return await store.list_claims(None if role == "admin" else claimer_id)
 
 
 @app.post("/v1/claims", response_model=ClaimOut, status_code=status.HTTP_201_CREATED)
-async def create_claim(payload: ClaimCreate, role: Annotated[Role, Depends(require_session)]) -> ClaimOut:
-    claim = await store.create_claim(payload, role)
+async def create_claim(
+    payload: ClaimCreate,
+    role: Annotated[Role, Depends(require_session)],
+    credentials: Annotated[Optional[HTTPAuthorizationCredentials], Depends(security)] = None,
+) -> ClaimOut:
+    token_payload = store.decode_access_token(credentials.credentials) if credentials else None
+    claim = await store.create_claim(payload, role, token_payload.get("sub") if token_payload else None, token_payload.get("email") if token_payload else None)
     if claim is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
+    return claim
+
+
+@app.get("/api/admin/claims", response_model=list[AdminClaimOut])
+async def admin_list_claims(
+    role: Annotated[Role, Depends(require_session)],
+    status_filter: Annotated[Optional[Literal["pending", "approved", "rejected"]], Query(alias="status")] = None,
+) -> list[AdminClaimOut]:
+    if role != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin role required")
+    return await store.list_admin_claims(status_filter)
+
+
+@app.patch("/api/admin/claims/{claim_id}/review", response_model=ClaimOut)
+@app.post("/api/admin/claims/{claim_id}/review", response_model=ClaimOut)
+async def review_claim(
+    claim_id: str,
+    payload: ClaimReview,
+    role: Annotated[Role, Depends(require_session)],
+) -> ClaimOut:
+    if role != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin role required")
+    claim = await store.review_claim(claim_id, payload.status, payload.admin_notes)
+    if claim is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Claim not found")
     return claim
 
 

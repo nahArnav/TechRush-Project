@@ -1,9 +1,10 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import { CheckCircle2, ClipboardList, PackageSearch } from 'lucide-react'
-import { GlassPanel, LaneTitle } from '../neo'
-import type { Claim, Item } from '../types'
+import { CheckCircle2, ClipboardList, PackageSearch, ShieldCheck, XCircle } from 'lucide-react'
+import { GlassPanel, LaneTitle, useToast } from '../neo'
+import { fetchAdminClaims, reviewAdminClaim } from '../api'
+import type { AdminClaim, Claim, Item } from '../types'
 
 function ObjectList({
   title,
@@ -50,7 +51,42 @@ function ObjectList({
   )
 }
 
-export default function AdminDashboard({ items = [], claims = [] }: { items?: Item[]; claims?: Claim[] }) {
+export default function AdminDashboard({ items = [], claims = [], onReviewComplete }: { items?: Item[]; claims?: Claim[]; onReviewComplete?: () => void }) {
+  const { push } = useToast()
+  const [pendingClaims, setPendingClaims] = useState<AdminClaim[]>([])
+  const [loadingClaims, setLoadingClaims] = useState(true)
+  const [reviewingId, setReviewingId] = useState<string | null>(null)
+
+  const loadPendingClaims = async () => {
+    setLoadingClaims(true)
+    try {
+      setPendingClaims(await fetchAdminClaims('pending'))
+    } catch (error) {
+      console.error('Failed to load pending claims:', error)
+      push({ title: 'Claims unavailable', description: 'Could not load the approval queue.' })
+    } finally {
+      setLoadingClaims(false)
+    }
+  }
+
+  useEffect(() => { loadPendingClaims() }, [])
+
+  const reviewClaim = async (claim: AdminClaim, decision: 'approved' | 'rejected') => {
+    const itemName = claim.item?.title || claim.itemId
+    if (!window.confirm(`${decision === 'approved' ? 'Accept' : 'Reject'} this claim for ${itemName}?`)) return
+    setReviewingId(claim.id)
+    try {
+      await reviewAdminClaim(claim.id, decision)
+      setPendingClaims((current) => current.filter((entry) => entry.id !== claim.id))
+      push({ title: `Claim ${decision}`, description: `${itemName} has been marked ${decision}.` })
+      onReviewComplete?.()
+    } catch (error: any) {
+      push({ title: 'Review failed', description: error?.message || 'Please try again.' })
+    } finally {
+      setReviewingId(null)
+    }
+  }
+
   const itemList = items
   const claimedItemIds = new Set(claims.map((claim) => claim.itemId))
   const claimedItems = itemList.filter((item) => claimedItemIds.has(item.id) || item.status === 'closed' || item.status === 'in_review')
@@ -80,14 +116,59 @@ export default function AdminDashboard({ items = [], claims = [] }: { items?: It
             <p className="mt-sm text-3xl font-black text-ink">{itemList.length}</p>
           </GlassPanel>
           <GlassPanel className="p-xl shadow-carve-sm">
-            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-ink-muted">Claimed / in review</p>
-            <p className="mt-sm text-3xl font-black text-ink">{claimedItems.length}</p>
+            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-ink-muted">Pending approvals</p>
+            <p className="mt-sm text-3xl font-black text-ink">{pendingClaims.length}</p>
           </GlassPanel>
           <GlassPanel className="p-xl shadow-carve-sm">
             <p className="text-[10px] font-black uppercase tracking-[0.2em] text-ink-muted">Open objects</p>
             <p className="mt-sm text-3xl font-black text-ink">{itemList.filter((item) => item.status === 'open').length}</p>
           </GlassPanel>
         </div>
+
+        <GlassPanel className="flex flex-col gap-lg p-2xl shadow-extrude">
+          <div className="flex flex-wrap items-center justify-between gap-md">
+            <div>
+              <LaneTitle><span className="inline-flex items-center gap-sm"><ShieldCheck size={15} />Claim Approval Queue</span></LaneTitle>
+              <p className="mt-xs text-xs text-ink-muted">Compare the item, claimant, and proof of ownership before making a decision.</p>
+            </div>
+            <button type="button" onClick={loadPendingClaims} className="rounded-neo border border-line px-md py-sm text-[10px] font-black uppercase tracking-widest text-ink shadow-extrude-sm">Refresh</button>
+          </div>
+          {loadingClaims ? (
+            <p className="py-xl text-center text-xs font-bold text-ink-muted">Loading pending claims...</p>
+          ) : pendingClaims.length === 0 ? (
+            <p className="py-xl text-center text-xs text-ink-muted">No claims are waiting for approval.</p>
+          ) : (
+            <div className="flex flex-col gap-md">
+              {pendingClaims.map((claim) => {
+                const busy = reviewingId === claim.id
+                return (
+                  <article key={claim.id} className="rounded-neo bg-plate p-lg shadow-carve-sm">
+                    <div className="grid gap-lg lg:grid-cols-[1fr_1fr_1.4fr_auto] lg:items-center">
+                      <div>
+                        <p className="text-[10px] font-black uppercase tracking-widest text-ink-muted">Item</p>
+                        <p className="mt-xs text-sm font-black text-ink">{claim.item?.title || claim.itemId}</p>
+                        <p className="mt-xs text-xs text-ink-muted">{claim.item?.category || 'Item ID'} · {claim.item?.location || claim.itemId}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-black uppercase tracking-widest text-ink-muted">Claimer</p>
+                        <p className="mt-xs break-all text-sm font-bold text-ink">{claim.claimerEmail || claim.claimerId || 'Unknown user'}</p>
+                        <p className="mt-xs text-xs uppercase text-ink-muted">{claim.claimantRole}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-black uppercase tracking-widest text-ink-muted">Proof of ownership</p>
+                        <p className="mt-xs text-xs leading-relaxed text-ink-soft">{claim.proofDescription || 'No proof description supplied.'}</p>
+                      </div>
+                      <div className="flex flex-wrap gap-sm lg:flex-col">
+                        <button disabled={busy} type="button" onClick={() => reviewClaim(claim, 'approved')} className="inline-flex items-center justify-center gap-xs rounded-neo bg-ink px-lg py-md text-[10px] font-black uppercase tracking-widest text-on-ink shadow-float disabled:opacity-50"><CheckCircle2 size={14} />Accept</button>
+                        <button disabled={busy} type="button" onClick={() => reviewClaim(claim, 'rejected')} className="inline-flex items-center justify-center gap-xs rounded-neo border border-line px-lg py-md text-[10px] font-black uppercase tracking-widest text-ink shadow-extrude-sm disabled:opacity-50"><XCircle size={14} />Reject</button>
+                      </div>
+                    </div>
+                  </article>
+                )
+              })}
+            </div>
+          )}
+        </GlassPanel>
 
         <GlassPanel className="p-2xl shadow-extrude">
           <LaneTitle>Most commonly reported categories</LaneTitle>

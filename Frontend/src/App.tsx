@@ -286,7 +286,7 @@ function AppInner() {
                 </main>
               }
             >
-              <AdminDashboard items={items} claims={claims} />
+              <AdminDashboard items={items} claims={claims} onReviewComplete={loadBackendData} />
             </Suspense>
           )}
         </div>

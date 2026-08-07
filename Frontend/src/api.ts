@@ -1,4 +1,4 @@
-import type { Item, Claim, Role, ItemType, ItemStatus, ReportSuggestion } from './types'
+import type { Item, Claim, AdminClaim, Role, ItemType, ItemStatus, ReportSuggestion } from './types'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 
@@ -127,7 +127,11 @@ export async function fetchClaims(): Promise<Claim[]> {
   return (data || []).map((c: any) => ({
     id: c.id,
     itemId: c.item_id,
-    stage: c.stage,
+    status: c.status || (c.stage === 'approved' ? 'approved' : c.stage === 'rejected' ? 'rejected' : 'pending'),
+    stage: c.status || (c.stage === 'approved' ? 'approved' : c.stage === 'rejected' ? 'rejected' : 'pending'),
+    claimerId: c.claimer_id,
+    claimerEmail: c.claimer_email,
+    proofDescription: c.proof_description,
     claimantRole: c.claimant_role,
     createdAt: c.created_at,
   }))
@@ -137,7 +141,7 @@ export async function createClaim(itemId: string, proof: string): Promise<Claim>
   const res = await fetch(`${API_BASE_URL}/v1/claims`, {
     method: 'POST',
     headers: getHeaders(),
-    body: JSON.stringify({ item_id: itemId, proof }),
+    body: JSON.stringify({ item_id: itemId, proof_description: proof }),
   })
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))
@@ -147,7 +151,11 @@ export async function createClaim(itemId: string, proof: string): Promise<Claim>
   return {
     id: c.id,
     itemId: c.item_id,
-    stage: c.stage,
+    status: c.status || 'pending',
+    stage: c.status || 'pending',
+    claimerId: c.claimer_id,
+    claimerEmail: c.claimer_email,
+    proofDescription: c.proof_description,
     claimantRole: c.claimant_role,
     createdAt: c.created_at,
   }
@@ -164,10 +172,45 @@ export async function updateClaimStage(claimId: string, stage: string): Promise<
   return {
     id: c.id,
     itemId: c.item_id,
-    stage: c.stage,
+    status: c.status || 'pending',
+    stage: c.status || 'pending',
     claimantRole: c.claimant_role,
     createdAt: c.created_at,
   }
+}
+
+function mapAdminClaim(c: any): AdminClaim {
+  return {
+    id: c.id,
+    itemId: c.item_id,
+    status: c.status,
+    stage: c.status,
+    claimerId: c.claimer_id,
+    claimerEmail: c.claimer_email,
+    claimantRole: c.claimant_role,
+    proofDescription: c.proof_description,
+    createdAt: c.created_at,
+    adminNotes: c.admin_notes,
+    item: c.item ? mapItem(c.item) : undefined,
+  }
+}
+
+export async function fetchAdminClaims(status = 'pending'): Promise<AdminClaim[]> {
+  const res = await fetch(`${API_BASE_URL}/api/admin/claims?status=${encodeURIComponent(status)}`, { headers: getHeaders() })
+  if (!res.ok) throw new Error('Failed to load claims for review')
+  return (await res.json()).map(mapAdminClaim)
+}
+
+export async function reviewAdminClaim(claimId: string, status: 'approved' | 'rejected', adminNotes = ''): Promise<Claim> {
+  const res = await fetch(`${API_BASE_URL}/api/admin/claims/${claimId}/review`, {
+    method: 'PATCH', headers: getHeaders(), body: JSON.stringify({ status, admin_notes: adminNotes }),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || 'Failed to review claim')
+  }
+  const c = await res.json()
+  return { id: c.id, itemId: c.item_id, status: c.status, stage: c.status, claimantRole: c.claimant_role, createdAt: c.created_at }
 }
 
 export async function fetchMapData() {
