@@ -32,6 +32,7 @@ from .models import (
     HandoverOut,
     ItemCreate,
     ItemOut,
+    ItemSightingOut,
     ItemStatus,
     ItemType,
     MessageCreate,
@@ -136,6 +137,9 @@ def _doc_to_item(doc: dict) -> ItemOut:
     coordinates = None
     if doc.get("coord_x") is not None and doc.get("coord_z") is not None:
         coordinates = CampusPoint(x=doc["coord_x"], z=doc["coord_z"])
+    sighted_by = [str(user_id) for user_id in doc.get("sighted_by_user_ids", []) if user_id]
+    raw_count = doc.get("sighting_count", len(sighted_by))
+    sighting_count = max(int(raw_count or 0), len(sighted_by))
     return ItemOut(
         id=doc["id"],
         type=doc["type"],
@@ -147,6 +151,9 @@ def _doc_to_item(doc: dict) -> ItemOut:
         status=doc["status"],
         match_score=doc["match_score"],
         coordinates=coordinates,
+        user_id=doc.get("user_id"),
+        sighting_count=sighting_count,
+        sighted_by_user_ids=sighted_by,
         photos=doc.get("photos", []),
     )
 
@@ -184,6 +191,8 @@ def _seed_item_docs() -> list[dict[str, Any]]:
             "coord_x": coord_x,
             "coord_z": coord_z,
             "created_at": now,
+            "sighting_count": 0,
+            "sighted_by_user_ids": [],
         })
     return docs
 
@@ -196,23 +205,36 @@ def _matches_text_query(doc: dict[str, Any], query: str) -> bool:
     )
 
 
+# ---------------------------------------------------------------------------
+# Database initialisation & seeding
+# ---------------------------------------------------------------------------
 async def init_db() -> None:
+    """Initialize MongoDB when available, otherwise seed the in-memory fallback."""
     global _memory_ready, _memory_items, _memory_claims
 
     if database.db is None:
         if not _memory_ready:
-            _memory_items = []
-            _memory_claims = []
+            _memory_items = _seed_item_docs()
+            _memory_claims = [{
+                "_id": ObjectId(),
+                "item_id": "LF-1043",
+                "stage": "review",
+                "claimant_role": "student",
+                "proof": "Sleeve has a small tear near the zipper.",
+                "created_at": utc_now(),
+            }]
             _memory_ready = True
         return
 
     await database.db.items.create_index("id", unique=True)
     await database.db.items.create_index([("date", -1), ("created_at", -1)])
+    await database.db.items.update_many({"sighting_count": {"$exists": False}}, {"$set": {"sighting_count": 0}})
+    await database.db.items.update_many({"sighted_by_user_ids": {"$exists": False}}, {"$set": {"sighted_by_user_ids": []}})
     await database.db.claims.create_index("item_id")
     await database.db.sessions.create_index("token", unique=True)
-    seed_ids = [item[0] for item in SEED_ITEMS]
-    await database.db.items.delete_many({"id": {"$in": seed_ids}})
-    await database.db.claims.delete_many({"item_id": {"$in": seed_ids}})
+
+    if await database.db.items.count_documents({}) == 0:
+        await _seed_items()
 
 
 async def _seed_items() -> None:
@@ -346,7 +368,7 @@ async def _infer_match_score(payload: ItemCreate) -> float:
     return round(min(score, 0.96), 2)
 
 
-async def create_item(payload: ItemCreate) -> ItemOut:
+async def create_item(payload: ItemCreate, user_id: str | None) -> ItemOut:
     item_id = await _next_item_id()
     coord_x, coord_z = infer_coordinates(payload.location)
     item_status = _infer_status(payload)
@@ -367,6 +389,9 @@ async def create_item(payload: ItemCreate) -> ItemOut:
         "coord_z": coord_z,
         "photos": payload.photos[:8],
         "created_at": now,
+        "user_id": user_id,
+        "sighting_count": 0,
+        "sighted_by_user_ids": [],
     }
     if database.db is None:
         _memory_items.append(doc)
@@ -374,6 +399,54 @@ async def create_item(payload: ItemCreate) -> ItemOut:
 
     await database.db.items.insert_one(doc)
     return _doc_to_item(doc)
+
+
+async def toggle_item_sighting(item_id: str, user_id: str) -> Optional[ItemSightingOut]:
+    if database.db is None:
+        doc = next((item for item in _memory_items if item["id"] == item_id), None)
+        if doc is None:
+            return None
+
+        sighted_by = [str(existing) for existing in doc.get("sighted_by_user_ids", []) if existing]
+        if user_id in sighted_by:
+            sighted_by = [existing for existing in sighted_by if existing != user_id]
+            sighted = False
+        else:
+            sighted_by.append(user_id)
+            sighted = True
+
+        doc["sighted_by_user_ids"] = sighted_by
+        doc["sighting_count"] = len(sighted_by)
+        return ItemSightingOut(
+            item_id=item_id,
+            sighting_count=doc["sighting_count"],
+            sighted=sighted,
+            sighted_by_user_ids=sighted_by,
+        )
+
+    doc = await database.db.items.find_one({"id": item_id})
+    if doc is None:
+        return None
+
+    sighted_by = [str(existing) for existing in doc.get("sighted_by_user_ids", []) if existing]
+    if user_id in sighted_by:
+        sighted_by = [existing for existing in sighted_by if existing != user_id]
+        sighted = False
+    else:
+        sighted_by.append(user_id)
+        sighted = True
+
+    sighting_count = len(sighted_by)
+    await database.db.items.update_one(
+        {"id": item_id},
+        {"$set": {"sighted_by_user_ids": sighted_by, "sighting_count": sighting_count}},
+    )
+    return ItemSightingOut(
+        item_id=item_id,
+        sighting_count=sighting_count,
+        sighted=sighted,
+        sighted_by_user_ids=sighted_by,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -753,6 +826,28 @@ def decode_access_token(token: str) -> dict | None:
 # ---------------------------------------------------------------------------
 # User CRUD (SQLite & Mongo fallback)
 # ---------------------------------------------------------------------------
+GUEST_USER_EMAIL = "guest@pict.edu"
+GUEST_USER_PASSWORD = "pict#2026"
+
+
+async def get_or_create_guest_user() -> UserOut:
+    """Provide a durable owner for demo or unauthenticated report submissions."""
+    existing = await get_user_by_email(GUEST_USER_EMAIL)
+    if existing is not None:
+        return UserOut(
+            id=existing["id"],
+            email=existing["email"],
+            role=existing["role"],
+            created_at=existing["created_at"],
+            updated_at=existing["updated_at"],
+        )
+    return await create_user(
+        email=GUEST_USER_EMAIL,
+        password_hash=hash_password(GUEST_USER_PASSWORD),
+        role="student",
+    )
+
+
 async def create_user(email: str, password_hash: str, role: str) -> UserOut:
     now = utc_now()
     clean_email = email.strip().lower()
@@ -949,9 +1044,14 @@ async def list_activity(
 # AI report assistant
 # ---------------------------------------------------------------------------
 def suggest_report_details(payload: AIReportRequest) -> AIReportSuggestion:
+    """Generate usable report fields from camera, microphone, photo, or text input.
+
+    The app keeps this server-side so an AI provider key is never exposed in the
+    browser. A deterministic local fallback keeps the hackathon demo working even
+    when the external AI service or network is unavailable.
+    """
     notes = (payload.notes or "").strip()
-    photo_hint = " uploaded photo" if payload.photos else ""
-    haystack = f"{payload.source} {notes} {payload.location or ''}{photo_hint}".lower()
+    haystack = f"{payload.source} {notes} {payload.location or ''}".lower()
 
     if any(word in haystack for word in ("phone", "iphone", "mobile")):
         return AIReportSuggestion(
