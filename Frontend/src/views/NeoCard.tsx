@@ -1,65 +1,29 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Eye, Lock, MapPin, MessageSquare, Sparkles } from 'lucide-react'
 import { GlassCard, NeoButton, NeoPill, useTheme } from '../neo'
 import { emojiFor, isCampusId, type Claim, type Item } from '../types'
 import WorkflowTracker from './WorkflowTracker'
 import { trackActivity } from '../trackActivity'
-import { toggleSawThis } from '../api'
 
 export default function NeoCard({
   item,
   claim,
+  isOwnReport = false,
   variant = 'default',
   onClaim,
   onChat,
-  currentUserId,
 }: {
   item: Item
   claim?: Claim
+  isOwnReport?: boolean
   variant?: 'default' | 'ai'
   onClaim: (item: Item) => void
   onChat?: (item: Item) => void
-  currentUserId?: string
 }) {
   const ai = variant === 'ai'
   const { theme } = useTheme()
   const aiDark = ai && theme === 'dark'
   const [confirmed, setConfirmed] = useState(false)
-  const [confirms, setConfirms] = useState(item.sightingCount ?? 0)
-  const [sightingLoading, setSightingLoading] = useState(false)
-  const isOwner = Boolean(currentUserId && item.userId && currentUserId === item.userId)
-
-  useEffect(() => {
-    setConfirms(item.sightingCount ?? 0)
-    setConfirmed(Boolean(currentUserId && item.sightedByUserIds?.includes(currentUserId)))
-  }, [currentUserId, item.id, item.sightedByUserIds, item.sightingCount])
-
-  const handleSawThis = async () => {
-    if (sightingLoading) return
-
-    const previousConfirmed = confirmed
-    const previousCount = confirms
-    const optimisticConfirmed = !confirmed
-    const optimisticCount = Math.max(0, confirms + (optimisticConfirmed ? 1 : -1))
-
-    setConfirmed(optimisticConfirmed)
-    setConfirms(optimisticCount)
-    setSightingLoading(true)
-    trackActivity('i_saw_this', item.id, { title: item.title, confirmed: optimisticConfirmed })
-
-    try {
-      const result = await toggleSawThis(item.id)
-      setConfirmed(result.sighted)
-      setConfirms(result.sightingCount)
-    } catch (err) {
-      console.error('Failed to persist sighting:', err)
-      setConfirmed(previousConfirmed)
-      setConfirms(previousCount)
-    } finally {
-      setSightingLoading(false)
-    }
-  }
-
   if (isCampusId(item.category)) {
     return (
       <GlassCard className="relative w-72 shrink-0 overflow-hidden p-xl">
@@ -92,19 +56,19 @@ export default function NeoCard({
   const shell = ai ? 'text-ai-ink' : 'text-ink'
   const muted = ai ? 'text-ai-ink-muted' : 'text-ink-muted'
 
-  const body = (
+  const Body = (
     <>
       <div className="flex items-start justify-between gap-md">
-        <div className="flex min-w-0 items-center gap-md">
+        <div className="flex items-center gap-md">
           <span
-            className={`flex size-11 shrink-0 items-center justify-center rounded-neo text-xl ${ai ? 'border border-ai-border bg-ai-surface' : 'bg-plate shadow-extrude-sm'}`}
+            className={`flex size-11 items-center justify-center rounded-neo text-xl ${ai ? 'border border-ai-border bg-ai-surface' : 'bg-plate shadow-extrude-sm'}`}
           >
             {emojiFor(item.category)}
           </span>
-          <div className="min-w-0">
-            <p className="break-words text-sm font-bold tracking-tight">{item.title}</p>
-            <p className={`flex min-w-0 items-start gap-xs break-words text-xs ${muted}`}>
-              <MapPin className="mt-0.5 shrink-0" size={11} /> <span className="min-w-0">{item.location}</span>
+          <div>
+            <p className="text-sm font-bold tracking-tight">{item.title}</p>
+            <p className={`flex items-center gap-xs text-xs ${muted}`}>
+              <MapPin size={11} /> {item.location}
             </p>
           </div>
         </div>
@@ -115,51 +79,50 @@ export default function NeoCard({
         ) : null}
       </div>
 
-      <p className={`break-words text-xs leading-relaxed ${muted}`}>{item.description}</p>
+      <p className={`text-xs leading-relaxed ${muted}`}>{item.description}</p>
+
+      {item.photos?.length ? (
+        <div className="grid grid-cols-3 gap-xs">
+          {item.photos.slice(0, 3).map((photo, index) => (
+            <img key={`${item.id}-photo-${index}`} src={photo} alt={`${item.title} reference ${index + 1}`} className="aspect-square rounded-neo object-cover shadow-carve-sm" />
+          ))}
+        </div>
+      ) : null}
 
       {claim ? (
-        <div className="flex w-full min-w-0 flex-col gap-md">
-          <div className={`w-full min-w-0 overflow-hidden rounded-neo p-md ${ai ? 'border border-ai-border bg-ai-surface' : 'bg-plate shadow-carve-sm'}`}>
+        <div className="flex flex-col gap-md">
+          <div className={`rounded-neo p-md ${ai ? 'border border-ai-border bg-ai-surface' : 'bg-plate shadow-carve-sm'}`}>
             <WorkflowTracker stage={claim.stage} dark={aiDark} />
           </div>
-          <NeoPill
-            className="w-full justify-center whitespace-normal text-center leading-tight"
-            iconStart={<MessageSquare className="shrink-0" size={13} />}
-            onClick={() => {
-              trackActivity('chat_opened', item.id)
-              onChat?.(item)
-            }}
-          >
+          <NeoPill iconStart={<MessageSquare size={13} />} onClick={() => { trackActivity('chat_opened', item.id); onChat?.(item) }}>
             Safe chat &amp; handover
           </NeoPill>
         </div>
+      ) : isOwnReport ? (
+        <div className="flex items-center justify-between gap-md">
+          <NeoPill active iconStart={<Eye size={13} />}>
+            Your report
+          </NeoPill>
+          <NeoButton variant={aiDark ? 'dark' : 'raised'} size="sm" disabled>
+            Claim hidden
+          </NeoButton>
+        </div>
       ) : (
-        <div className="flex min-w-0 items-center justify-between gap-md">
+        <div className="flex items-center justify-between gap-md">
           <NeoPill
-            className="shrink-0"
             active={confirmed}
             iconStart={<Eye size={13} />}
-            onClick={handleSawThis}
-            disabled={sightingLoading}
+            onClick={() => {
+              const nextState = !confirmed
+              setConfirmed(nextState)
+              trackActivity('i_saw_this', item.id, { title: item.title, confirmed: nextState })
+            }}
           >
-            I saw this - {confirms}
+            I saw this
           </NeoPill>
-          {isOwner ? (
-            <span className={`inline-flex min-h-9 min-w-0 flex-1 items-center justify-center rounded-neo-full px-md py-sm text-center text-[10px] font-black uppercase leading-tight tracking-[0.12em] ${ai ? 'border border-ai-border bg-ai-surface text-ai-ink' : 'bg-plate text-ink-muted shadow-carve-sm'}`}>
-              You reported this item
-            </span>
-          ) : (
-            <NeoButton
-              variant={aiDark ? 'dark' : 'raised'}
-              size="sm"
-              onClick={() => {
-                trackActivity('claim_opened', item.id)
-                onClaim(item)
-              }}
-            >
-              Claim
-            </NeoButton>
-          )}
+          <NeoButton variant={aiDark ? 'dark' : 'raised'} size="sm" onClick={() => { trackActivity('claim_opened', item.id); onClaim(item) }}>
+            Claim
+          </NeoButton>
         </div>
       )}
     </>
@@ -170,12 +133,12 @@ export default function NeoCard({
       <div
         className={`flex w-72 shrink-0 flex-col gap-lg rounded-neo-lg border border-ai-border bg-ai-surface p-xl shadow-glass-lg backdrop-blur-2xl ${shell}`}
       >
-        {body}
+        {Body}
       </div>
     )
   }
 
   return (
-    <GlassCard className={`flex w-72 shrink-0 flex-col gap-lg p-xl ${shell}`}>{body}</GlassCard>
+    <GlassCard className={`flex w-72 shrink-0 flex-col gap-lg p-xl ${shell}`}>{Body}</GlassCard>
   )
 }

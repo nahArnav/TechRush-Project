@@ -2,33 +2,26 @@ import { useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Bell, LifeBuoy, LogOut, User, UserCheck } from 'lucide-react'
 import { GlassPanel, NeoIconButton, SPRING, ThemeToggle, Tooltip } from '../neo'
-import { ROLE_LABELS, type Role } from '../types'
-
-const ALERTS = [
-  { title: 'New AI match', body: 'A silver laptop matches your lost report (92%).' },
-  { title: 'Claim in review', body: 'Your AirPods claim moved to Review.' },
-  { title: 'Saved search alert', body: '“Black wallet” — 2 new found items.' },
-]
+import { ROLE_LABELS, type Notification, type Role } from '../types'
 
 export default function ProfileNav({
   role,
   authRole,
   userId,
-  userDisplayId,
   onProfile,
   onSupport,
   onSignOut,
+  notifications = [],
 }: {
   role: Role
   authRole: Role
   userId?: string
-  userDisplayId?: string
+  notifications?: Notification[]
   onProfile: () => void
   onSupport: () => void
   onSignOut: () => void
 }) {
   const [bellOpen, setBellOpen] = useState(false)
-  const displayUser = formatUserDisplay(userDisplayId || userId)
 
   return (
     <header className="sticky top-0 z-30 flex flex-wrap items-center justify-between gap-lg px-2xl py-lg">
@@ -42,11 +35,11 @@ export default function ProfileNav({
           </span>
         </div>
 
-        {displayUser ? (
+        {userId ? (
           <div className="glass hidden items-center gap-xs rounded-neo-full px-lg py-sm text-xs font-bold text-ink shadow-glass sm:flex">
             <UserCheck size={14} className="text-ink-muted" />
-            <span className="text-[10px] uppercase tracking-widest text-ink-muted">User:</span>
-            <span className="max-w-56 truncate font-black tracking-wide">{displayUser}</span>
+            <span className="text-[10px] uppercase tracking-widest text-ink-muted">ID:</span>
+            <span className="font-black tracking-wide">{userId}</span>
           </div>
         ) : null}
       </div>
@@ -58,7 +51,6 @@ export default function ProfileNav({
       <div className="flex items-center gap-md">
         <ThemeToggle />
 
-        {/* Notifications (Feature 6) */}
         <div className="relative">
           <Tooltip label="Notifications">
             <NeoIconButton
@@ -69,7 +61,7 @@ export default function ProfileNav({
               className={bellOpen ? 'shadow-carve' : ''}
             />
           </Tooltip>
-          <span className="pointer-events-none absolute right-2 top-2 size-2 rounded-neo-full bg-ink" />
+          {notifications.length ? <span className="pointer-events-none absolute right-2 top-2 size-2 rounded-neo-full bg-ink" /> : null}
           <AnimatePresence>
             {bellOpen ? (
               <motion.div
@@ -84,12 +76,17 @@ export default function ProfileNav({
                     Notifications
                   </p>
                   <div className="flex flex-col">
-                    {ALERTS.map((a, i) => (
+                    {notifications.length ? notifications.map((a, i) => (
                       <div key={i} className="rounded-neo px-md py-md hover:bg-ink/5">
                         <p className="text-sm font-bold text-ink">{a.title}</p>
                         <p className="text-xs text-ink-muted">{a.body}</p>
                       </div>
-                    ))}
+                    )) : (
+                      <div className="rounded-neo px-md py-md">
+                        <p className="text-sm font-bold text-ink">No notifications yet</p>
+                        <p className="text-xs text-ink-muted">New report, claim, and search updates will appear here.</p>
+                      </div>
+                    )}
                   </div>
                 </GlassPanel>
               </motion.div>
@@ -109,11 +106,4 @@ export default function ProfileNav({
       </div>
     </header>
   )
-}
-
-function formatUserDisplay(value?: string) {
-  const clean = value?.trim()
-  if (!clean) return ''
-  if (/^[a-f\d]{24}$/i.test(clean)) return 'Signed in user'
-  return clean
 }

@@ -14,14 +14,6 @@ function getHeaders(extra: Record<string, string> = {}): Record<string, string> 
   return headers
 }
 
-async function getErrorMessage(res: Response, fallback: string): Promise<string> {
-  const err = await res.json().catch(() => ({}))
-  if (typeof err.detail === 'string') return err.detail
-  if (typeof err.message === 'string') return err.message
-  if (Array.isArray(err.detail)) return err.detail.map((issue: any) => issue.msg || JSON.stringify(issue)).join('; ')
-  return fallback
-}
-
 export async function registerUser(email: string, password: string, role: Role = 'student') {
   const res = await fetch(`${API_BASE_URL}/v1/auth/register`, {
     method: 'POST',
@@ -60,6 +52,21 @@ export async function createDemoSession(role: Role) {
   return res.json()
 }
 
+function mapItem(i: any): Item {
+  return {
+    id: String(i.id || 'LF-0000'),
+    type: i.type || 'found',
+    category: i.category || 'Other',
+    title: i.title || 'Reported item',
+    description: i.description || '',
+    location: i.location || 'Campus Quad',
+    date: i.date || new Date().toISOString().split('T')[0],
+    status: i.status || 'open',
+    matchScore: typeof i.matchScore === 'number' ? i.matchScore : (typeof i.match_score === 'number' ? i.match_score : 0.5),
+    photos: Array.isArray(i.photos) ? i.photos : [],
+  }
+}
+
 export async function fetchItems(params?: {
   q?: string
   type?: ItemType
@@ -80,20 +87,7 @@ export async function fetchItems(params?: {
   const data = await res.json()
   const rawItems = data.items || []
 
-  return rawItems.map((i: any) => ({
-    id: String(i.id || 'LF-0000'),
-    type: i.type || 'found',
-    category: i.category || 'Other',
-    title: i.title || 'Reported item',
-    description: i.description || '',
-    location: i.location || 'Campus Quad',
-    date: i.date || new Date().toISOString().split('T')[0],
-    status: i.status || 'open',
-    matchScore: typeof i.matchScore === 'number' ? i.matchScore : (typeof i.match_score === 'number' ? i.match_score : 0.5),
-    userId: i.user_id ?? i.userId,
-    sightingCount: typeof i.sightingCount === 'number' ? i.sightingCount : (typeof i.sighting_count === 'number' ? i.sighting_count : 0),
-    sightedByUserIds: Array.isArray(i.sighted_by_user_ids) ? i.sighted_by_user_ids : (Array.isArray(i.sightedByUserIds) ? i.sightedByUserIds : []),
-  }))
+  return rawItems.map(mapItem)
 }
 
 export async function createItem(itemData: {
@@ -106,76 +100,24 @@ export async function createItem(itemData: {
   brand?: string
   color?: string
   anonymous?: boolean
+  photos?: string[]
 }): Promise<Item> {
   const res = await fetch(`${API_BASE_URL}/v1/items`, {
     method: 'POST',
     headers: getHeaders(),
-    body: JSON.stringify({
-      ...itemData,
-      reporter_id: localStorage.getItem('user_id') || 'guest',
-      reporter_email: localStorage.getItem('user_email') || 'guest@pict.edu',
-    }),
+    body: JSON.stringify(itemData),
   })
   if (!res.ok) {
-    throw new Error(await getErrorMessage(res, 'Failed to report item'))
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || 'Failed to report item')
   }
-  const i = await res.json()
-  return {
-    id: String(i.id || 'LF-0000'),
-    type: i.type || 'found',
-    category: i.category || 'Other',
-    title: i.title || 'Reported item',
-    description: i.description || '',
-    location: i.location || 'Campus Quad',
-    date: i.date || new Date().toISOString().split('T')[0],
-    status: i.status || 'open',
-    matchScore: typeof i.matchScore === 'number' ? i.matchScore : (typeof i.match_score === 'number' ? i.match_score : 0.5),
-    userId: i.user_id ?? i.userId,
-    sightingCount: typeof i.sightingCount === 'number' ? i.sightingCount : (typeof i.sighting_count === 'number' ? i.sighting_count : 0),
-    sightedByUserIds: Array.isArray(i.sighted_by_user_ids) ? i.sighted_by_user_ids : (Array.isArray(i.sightedByUserIds) ? i.sightedByUserIds : []),
-  }
+  return mapItem(await res.json())
 }
 
 export async function getItem(id: string): Promise<Item> {
   const res = await fetch(`${API_BASE_URL}/v1/items/${id}`, { headers: getHeaders() })
   if (!res.ok) throw new Error('Item not found')
-  const i = await res.json()
-  return {
-    id: String(i.id || 'LF-0000'),
-    type: i.type || 'found',
-    category: i.category || 'Other',
-    title: i.title || 'Reported item',
-    description: i.description || '',
-    location: i.location || 'Campus Quad',
-    date: i.date || new Date().toISOString().split('T')[0],
-    status: i.status || 'open',
-    matchScore: typeof i.matchScore === 'number' ? i.matchScore : (typeof i.match_score === 'number' ? i.match_score : 0.5),
-    userId: i.user_id ?? i.userId,
-    sightingCount: typeof i.sightingCount === 'number' ? i.sightingCount : (typeof i.sighting_count === 'number' ? i.sighting_count : 0),
-    sightedByUserIds: Array.isArray(i.sighted_by_user_ids) ? i.sighted_by_user_ids : (Array.isArray(i.sightedByUserIds) ? i.sightedByUserIds : []),
-  }
-}
-
-export async function toggleSawThis(itemId: string): Promise<{
-  itemId: string
-  sightingCount: number
-  sighted: boolean
-  sightedByUserIds: string[]
-}> {
-  const res = await fetch(`${API_BASE_URL}/v1/items/${itemId}/saw-this`, {
-    method: 'POST',
-    headers: getHeaders(),
-  })
-  if (!res.ok) {
-    throw new Error(await getErrorMessage(res, 'Failed to update sighting count'))
-  }
-  const data = await res.json()
-  return {
-    itemId: data.item_id || itemId,
-    sightingCount: typeof data.sighting_count === 'number' ? data.sighting_count : 0,
-    sighted: Boolean(data.sighted),
-    sightedByUserIds: Array.isArray(data.sighted_by_user_ids) ? data.sighted_by_user_ids : [],
-  }
+  return mapItem(await res.json())
 }
 
 export async function fetchClaims(): Promise<Claim[]> {
@@ -198,7 +140,8 @@ export async function createClaim(itemId: string, proof: string): Promise<Claim>
     body: JSON.stringify({ item_id: itemId, proof }),
   })
   if (!res.ok) {
-    throw new Error(await getErrorMessage(res, 'Failed to submit claim'))
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || 'Failed to submit claim')
   }
   const c = await res.json()
   return {
@@ -243,6 +186,7 @@ export async function suggestReportDetails(payload: {
   source: 'photo' | 'camera' | 'microphone' | 'text'
   notes?: string
   location?: string
+  photos?: string[]
 }): Promise<ReportSuggestion> {
   const res = await fetch(`${API_BASE_URL}/v1/ai/report-details`, {
     method: 'POST',
@@ -251,4 +195,40 @@ export async function suggestReportDetails(payload: {
   })
   if (!res.ok) throw new Error('Failed to analyze report details')
   return res.json()
+}
+
+export type ChatMessage = {
+  id: string
+  itemId: string
+  sender: 'me' | 'them' | 'staff' | 'system'
+  text: string
+  createdAt: string
+}
+
+const mapMessage = (m: any): ChatMessage => ({
+  id: String(m.id),
+  itemId: String(m.item_id),
+  sender: m.sender || 'me',
+  text: m.text || '',
+  createdAt: m.created_at || new Date().toISOString(),
+})
+
+export async function fetchMessages(itemId: string): Promise<ChatMessage[]> {
+  const res = await fetch(`${API_BASE_URL}/v1/messages/${itemId}`, { headers: getHeaders() })
+  if (!res.ok) return []
+  const data = await res.json()
+  return Array.isArray(data) ? data.map(mapMessage) : []
+}
+
+export async function sendMessage(itemId: string, text: string): Promise<ChatMessage> {
+  const res = await fetch(`${API_BASE_URL}/v1/messages/${itemId}`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify({ text, sender: 'me' }),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || 'Failed to send message')
+  }
+  return mapMessage(await res.json())
 }

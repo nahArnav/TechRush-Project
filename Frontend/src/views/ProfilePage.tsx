@@ -149,6 +149,13 @@ export default function ProfilePage({
                     </div>
                     <p className="text-xs text-ink-muted">{item.location}</p>
                     <p className="text-xs leading-relaxed text-ink-soft">{item.description}</p>
+                    {item.photos?.length ? (
+                      <div className="grid grid-cols-4 gap-xs">
+                        {item.photos.slice(0, 4).map((photo, index) => (
+                          <img key={`${item.id}-profile-photo-${index}`} src={photo} alt={`${item.title} reference ${index + 1}`} className="aspect-square rounded-neo object-cover shadow-carve-sm" />
+                        ))}
+                      </div>
+                    ) : null}
                     <div className="flex flex-wrap items-center justify-between gap-sm border-t border-line-soft pt-md text-[10px] text-ink-muted">
                       <span>Status: {item.status}</span>
                       <span>Date: {item.date}</span>

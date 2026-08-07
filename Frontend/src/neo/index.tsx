@@ -1,12 +1,3 @@
-/*
- * ─────────────────────────────────────────────────────────────────────────────
- * Monochrome Neo-Glass primitives
- * ─────────────────────────────────────────────────────────────────────────────
- * Glassmorphism (frosted, translucent) fused with neumorphism (physically
- * extruded / carved grayscale shadows). Every value resolves to a token from
- * src/index.css — no raw hex, no colored classes. framer-motion gives every
- * interaction a weighty spring so elements feel like they have physical mass.
- */
 import {
   createContext,
   useCallback,
@@ -22,8 +13,6 @@ import {
 import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { ChevronDown, Moon, Sun, X } from 'lucide-react'
-
-/* ── Theme engine (Light Titanium ⇄ Dark Space Grey) ─────────────────────────── */
 
 type Theme = 'light' | 'dark'
 type ThemeCtx = { theme: Theme; toggle: () => void }
@@ -47,13 +36,10 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
 export function useTheme() {
   const ctx = useContext(ThemeContext)
-  // Degrade gracefully instead of crashing if a consumer renders outside the
-  // provider (e.g. during Fast Refresh or a portalled subtree).
   if (!ctx) return { theme: 'light' as Theme, toggle: () => {} }
   return ctx
 }
 
-/* Highly tactile neumorphic theme switch — carved track, extruded sliding knob. */
 export function ThemeToggle() {
   const { theme, toggle } = useTheme()
   const dark = theme === 'dark'
@@ -81,11 +67,6 @@ export function ThemeToggle() {
 
 export const SPRING = { type: 'spring', stiffness: 420, damping: 30, mass: 0.9 } as const
 
-/* ── Tooltip ─────────────────────────────────────────────────────────────────── */
-
-/* Hover-only floating label for icon-only controls. High contrast in both themes
-   (dark plate + inverting ink), subtle shadow, ~160ms fade. Pure CSS group-hover
-   so it never needs a click and adds no state. */
 export function Tooltip({
   label,
   side = 'bottom',
@@ -117,8 +98,6 @@ export function Tooltip({
 }
 const PRESS = { scale: 0.96 }
 const LIFT = { scale: 1.03 }
-
-/* ── Glass containers ────────────────────────────────────────────────────────── */
 
 export function GlassPanel({
   className = '',
@@ -153,8 +132,6 @@ export function GlassCard({
     </div>
   )
 }
-
-/* ── Buttons ──────────────────────────────────────────────────────────────────── */
 
 type NeoVariant = 'raised' | 'dark' | 'ghost'
 type NeoSize = 'sm' | 'md' | 'lg'
@@ -224,8 +201,6 @@ export function NeoIconButton({
   )
 }
 
-/* Pill toggle — carved when active, extruded when idle. Used for community
-   confirmation ("I saw this item") and predefined quick replies. */
 export function NeoPill({
   active = false,
   iconStart,
@@ -245,8 +220,6 @@ export function NeoPill({
     </motion.button>
   )
 }
-
-/* ── Inputs (carved into the glass) ──────────────────────────────────────────── */
 
 export function NeoInput({
   icon,
@@ -329,8 +302,6 @@ export function NeoToggle({
   )
 }
 
-/* ── Modal ───────────────────────────────────────────────────────────────────── */
-
 export function NeoModal({
   isOpen,
   onClose,
@@ -341,7 +312,6 @@ export function NeoModal({
   tone = 'light',
   icon,
   size = 'md',
-  className = '',
 }: {
   isOpen: boolean
   onClose: () => void
@@ -352,7 +322,6 @@ export function NeoModal({
   tone?: 'light' | 'dark'
   icon?: ReactNode
   size?: 'md' | 'full'
-  className?: string
 }) {
   useEffect(() => {
     if (!isOpen) return
@@ -363,8 +332,6 @@ export function NeoModal({
 
   const dark = tone === 'dark'
 
-  /* ── Full-screen overlay: dedicated header (title + close), scrollable body,
-       optional pinned footer. Fills the whole viewport on every breakpoint. ── */
   if (size === 'full') {
     return createPortal(
       <AnimatePresence>
@@ -384,8 +351,6 @@ export function NeoModal({
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.98, y: 16 }}
               transition={SPRING}
-              /* Desktop: 70% of the viewport, never narrower than 680px, so form
-                 grids stay two-column instead of compressing. Mobile: full bleed. */
               className={`relative flex h-full w-full flex-col overflow-hidden rounded-none shadow-float sm:h-[92dvh] sm:w-[92vw] sm:min-w-[720px] sm:max-w-7xl sm:rounded-neo-lg ${dark ? 'glass-dark border-white/40 text-on-dark' : 'glass text-ink'}`}
             >
               <header className="flex shrink-0 items-center justify-between gap-lg border-b border-line-soft px-xl py-lg sm:px-2xl">
@@ -444,7 +409,7 @@ export function NeoModal({
             animate={{ scale: 1, y: 0, opacity: 1 }}
             exit={{ scale: 0.95, opacity: 0 }}
             transition={SPRING}
-            className={`relative w-[calc(100vw-2rem)] max-w-2xl min-w-0 rounded-neo-lg p-2xl shadow-float sm:w-full ${className} ${dark ? 'glass-dark border-2 border-white text-on-dark' : 'glass shadow-extrude text-ink'}`}
+            className={`relative w-full min-w-0 max-w-2xl rounded-neo-lg p-2xl shadow-float sm:min-w-[28rem] ${dark ? 'glass-dark border-2 border-white text-on-dark' : 'glass shadow-extrude text-ink'}`}
           >
             {icon ? (
               <div className="mb-lg flex justify-center">
@@ -462,7 +427,7 @@ export function NeoModal({
                 {title}
               </h2>
             ) : null}
-            <div className={`min-w-0 ${dark ? 'text-on-dark-muted' : 'text-ink-soft'}`}>{children}</div>
+            <div className={dark ? 'text-on-dark-muted' : 'text-ink-soft'}>{children}</div>
             {footer ? <div className="mt-2xl flex justify-center gap-md">{footer}</div> : null}
             {!footer && !dark ? (
               <button
@@ -481,8 +446,6 @@ export function NeoModal({
   )
 }
 
-/* ── Toasts ──────────────────────────────────────────────────────────────────── */
-
 type Toast = { id: number; title: string; description?: string; action?: { label: string; onClick: () => void } }
 type ToastCtx = { push: (t: Omit<Toast, 'id'>) => void }
 const ToastContext = createContext<ToastCtx | null>(null)
@@ -491,8 +454,6 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([])
   const idRef = useRef(0)
 
-  // Stable identity so consumers can safely list `push` in effect deps without
-  // triggering an update loop (a new function each render would re-fire effects).
   const push = useCallback((t: Omit<Toast, 'id'>) => {
     const id = ++idRef.current
     setToasts((prev) => [...prev, { ...t, id }])
@@ -536,7 +497,6 @@ export function useToast() {
   return ctx
 }
 
-/* Section-heading helper: uppercase, wide-tracked, weight-driven hierarchy. */
 export function LaneTitle({ children, dark = false }: { children: ReactNode; dark?: boolean }) {
   return (
     <h2

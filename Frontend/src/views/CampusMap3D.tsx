@@ -44,24 +44,6 @@ const PATHS = [
   { x: 25, z: 7, width: 3, depth: 34 },
 ]
 
-export const CATEGORY_PIN_COLORS: Record<string, { three: number; css: string }> = {
-  Electronics: { three: 0x60a5fa, css: '#60a5fa' },
-  Phone: { three: 0x22d3ee, css: '#22d3ee' },
-  Keys: { three: 0xfacc15, css: '#facc15' },
-  Wallet: { three: 0xfb923c, css: '#fb923c' },
-  Bags: { three: 0xa78bfa, css: '#a78bfa' },
-  Clothing: { three: 0xf472b6, css: '#f472b6' },
-  Books: { three: 0x818cf8, css: '#818cf8' },
-  Jewellery: { three: 0xeab308, css: '#eab308' },
-  'Government ID': { three: 0xef4444, css: '#ef4444' },
-  Medicine: { three: 0x14b8a6, css: '#14b8a6' },
-  Other: { three: 0x94a3b8, css: '#94a3b8' },
-}
-
-export function categoryPinColor(category: string) {
-  return CATEGORY_PIN_COLORS[category] ?? CATEGORY_PIN_COLORS.Other
-}
-
 function labelTexture(text: string) {
   const canvas = document.createElement('canvas')
   canvas.width = 512
@@ -78,6 +60,25 @@ function labelTexture(text: string) {
   const texture = new THREE.CanvasTexture(canvas)
   texture.needsUpdate = true
   return texture
+}
+
+const CATEGORY_PIN_COLORS: Record<string, { three: number; css: string }> = {
+  Keys: { three: 0xfacc15, css: '#facc15' },
+  'ID Card': { three: 0xec4899, css: '#ec4899' },
+  'Government ID': { three: 0xec4899, css: '#ec4899' },
+  Bags: { three: 0xef4444, css: '#ef4444' },
+  Electronics: { three: 0x3b82f6, css: '#3b82f6' },
+  Phone: { three: 0x22c55e, css: '#22c55e' },
+  Wallet: { three: 0xa855f7, css: '#a855f7' },
+  Books: { three: 0x14b8a6, css: '#14b8a6' },
+  Clothing: { three: 0xf97316, css: '#f97316' },
+  Jewellery: { three: 0xeab308, css: '#eab308' },
+  Medicine: { three: 0xffffff, css: '#ffffff' },
+  Other: { three: 0x94a3b8, css: '#94a3b8' },
+}
+
+function pinColor(item: Item) {
+  return CATEGORY_PIN_COLORS[item.category] ?? CATEGORY_PIN_COLORS.Other
 }
 
 function locateItem(item: Item, index: number) {
@@ -199,7 +200,7 @@ export default function CampusMap3D({
     scene.add(pinGroup)
     activeItems.forEach((item, index) => {
       const pos = locateItem(item, index)
-      const color = categoryPinColor(item.category).three
+      const color = pinColor(item).three
       const pin = new THREE.Mesh(
         new THREE.SphereGeometry(0.75, 18, 18),
         new THREE.MeshBasicMaterial({ color }),
@@ -335,11 +336,10 @@ export default function CampusMap3D({
       <div ref={mountRef} className="h-full min-h-[560px] w-full cursor-grab active:cursor-grabbing" />
 
       <div className="absolute left-md top-md flex flex-wrap gap-md rounded-neo bg-black/55 px-lg py-md text-xs font-bold text-white shadow-float backdrop-blur-lg">
-        {Object.entries(CATEGORY_PIN_COLORS).slice(0, 6).map(([category, color]) => (
-          <span key={category} className="flex items-center gap-xs">
-            <span className="size-2 rounded-neo-full" style={{ backgroundColor: color.css }} /> {category}
-          </span>
-        ))}
+        <span className="flex items-center gap-xs"><span className="size-2 rounded-neo-full" style={{ backgroundColor: CATEGORY_PIN_COLORS.Keys.css }} /> Keys</span>
+        <span className="flex items-center gap-xs"><span className="size-2 rounded-neo-full" style={{ backgroundColor: CATEGORY_PIN_COLORS['ID Card'].css }} /> ID</span>
+        <span className="flex items-center gap-xs"><span className="size-2 rounded-neo-full" style={{ backgroundColor: CATEGORY_PIN_COLORS.Bags.css }} /> Bags</span>
+        <span className="flex items-center gap-xs"><span className="size-2 rounded-neo-full" style={{ backgroundColor: CATEGORY_PIN_COLORS.Electronics.css }} /> Electronics</span>
       </div>
 
       {hovered ? (
@@ -364,10 +364,7 @@ export default function CampusMap3D({
                 className="flex items-center justify-between gap-md rounded-neo bg-white/10 p-sm text-left text-xs transition-colors hover:bg-white/20"
               >
                 <span className="flex min-w-0 items-center gap-xs">
-                  <span
-                    className="size-2 shrink-0 rounded-neo-full"
-                    style={{ backgroundColor: categoryPinColor(item.category).css }}
-                  />
+                  <span className="size-2 shrink-0 rounded-neo-full" style={{ backgroundColor: pinColor(item).css }} />
                   <span className="truncate font-bold">{item.title}</span>
                 </span>
                 <span className="shrink-0 text-[10px] text-white/60">{item.id}</span>

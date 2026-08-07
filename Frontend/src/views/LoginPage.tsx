@@ -1,17 +1,11 @@
 import { useState } from 'react'
 import { ArrowLeft, BadgeCheck, Eye, EyeOff, KeyRound, Lock, Shield, User, UserPlus } from 'lucide-react'
-import { GlassCard, NeoButton, NeoInput, NeoPill } from '../neo'
+import { GlassCard, NeoButton, NeoInput } from '../neo'
 import { ROLE_LABELS, type Role } from '../types'
 import PublicNav, { type PublicRoute } from './PublicNav'
 import { trackActivity } from '../trackActivity'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
-
-const DEMO_CREDENTIALS: Record<Role, { id: string; email: string }> = {
-  student: { id: 'STU-2024-8891', email: 'student@pict.edu' },
-  staff: { id: 'STF-102', email: 'staff@pict.edu' },
-  admin: { id: 'ADM-001', email: 'admin@pict.edu' },
-}
 
 const roleIcon = (r: Role) =>
   r === 'student' ? <User size={16} /> : r === 'staff' ? <BadgeCheck size={16} /> : <Shield size={16} />
@@ -28,24 +22,12 @@ export default function LoginPage({
   onNavigate: (route: PublicRoute) => void
 }) {
   const [mode, setMode] = useState<'login' | 'register'>('login')
-  const [role, setRole] = useState<Role>(initialRole)
+  const role = initialRole
   const [emailOrId, setEmailOrId] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(false)
-
-  const handleRoleChange = (newRole: Role) => {
-    setRole(newRole)
-    setError('')
-  }
-
-  const fillDemo = (demoRole: Role) => {
-    setRole(demoRole)
-    setEmailOrId(DEMO_CREDENTIALS[demoRole].email)
-    setPassword('pict#2026')
-    setError('')
-  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -119,12 +101,6 @@ export default function LoginPage({
       const msg = data.detail || (mode === 'register' ? 'Registration failed. Email may already be in use.' : 'Invalid email or password.')
       setError(msg)
     } catch {
-      if (mode === 'login' && !cleanInput.includes('@')) {
-        setIsLoading(false)
-        trackActivity('login', undefined, { role, demo: true })
-        onSignIn(role, cleanInput)
-        return
-      }
       setError('Unable to connect to backend server. Please make sure backend is running on http://localhost:8000.')
     } finally {
       setIsLoading(false)
@@ -135,7 +111,6 @@ export default function LoginPage({
     <div className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden p-2xl pt-28">
       <PublicNav active="home" onNavigate={onNavigate} />
 
-      {/* Ambient background blur elements */}
       <div className="pointer-events-none absolute -left-32 -top-24 size-[420px] rounded-neo-full bg-white/40 blur-[120px]" />
       <div className="pointer-events-none absolute -bottom-32 -right-24 size-[460px] rounded-neo-full bg-black/10 blur-[130px]" />
 
@@ -164,7 +139,6 @@ export default function LoginPage({
         </p>
 
         <GlassCard className="w-full p-2xl">
-          {/* Sign In vs Register Mode Toggle */}
           <div className="mb-lg flex rounded-neo-full bg-plate p-1 shadow-carve">
             <button
               type="button"
@@ -192,25 +166,13 @@ export default function LoginPage({
             </button>
           </div>
 
-          {/* Role selection tab pills */}
           <div className="mb-xl">
             <label className="mb-xs block text-[10px] font-black uppercase tracking-[0.2em] text-ink-muted">
-              Select role
+              Role
             </label>
-            <div className="grid grid-cols-3 gap-xs rounded-neo-full bg-plate p-1 shadow-carve">
-              {(Object.keys(ROLE_LABELS) as Role[]).map((r) => (
-                <button
-                  key={r}
-                  type="button"
-                  onClick={() => handleRoleChange(r)}
-                  className={`flex h-10 items-center justify-center gap-xs rounded-neo-full text-xs font-bold transition-all ${
-                    role === r ? 'bg-plate text-ink shadow-extrude-sm' : 'text-ink-muted hover:text-ink'
-                  }`}
-                >
-                  {roleIcon(r)}
-                  <span>{ROLE_LABELS[r]}</span>
-                </button>
-              ))}
+            <div className="flex h-11 items-center justify-center gap-xs rounded-neo-full bg-plate px-lg text-xs font-bold text-ink shadow-carve">
+              {roleIcon(role)}
+              <span>{ROLE_LABELS[role]}</span>
             </div>
           </div>
 
@@ -283,24 +245,6 @@ export default function LoginPage({
             </NeoButton>
           </form>
 
-          {/* Quick demo autofill */}
-          <div className="mt-2xl border-t border-line pt-xl">
-            <p className="mb-md text-center text-[10px] font-black uppercase tracking-[0.2em] text-ink-muted">
-              Quick test credentials
-            </p>
-            <div className="flex flex-wrap justify-center gap-xs">
-              {(Object.keys(ROLE_LABELS) as Role[]).map((r) => (
-                <NeoPill
-                  key={r}
-                  active={role === r && emailOrId === DEMO_CREDENTIALS[r].email}
-                  iconStart={roleIcon(r)}
-                  onClick={() => fillDemo(r)}
-                >
-                  Fill {ROLE_LABELS[r]}
-                </NeoPill>
-              ))}
-            </div>
-          </div>
         </GlassCard>
       </div>
     </div>

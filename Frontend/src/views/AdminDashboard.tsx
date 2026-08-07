@@ -5,21 +5,6 @@ import { CheckCircle2, ClipboardList, PackageSearch } from 'lucide-react'
 import { GlassPanel, LaneTitle } from '../neo'
 import type { Claim, Item } from '../types'
 
-const FALLBACK_ITEMS: Item[] = [
-  {
-    id: 'LF-1001',
-    type: 'found',
-    category: 'Electronics',
-    title: 'Sample Tag Item',
-    description: 'Physical tag sample item',
-    location: 'Security Office',
-    date: '2026-08-06',
-    status: 'secured',
-    matchScore: 0.95,
-    sightingCount: 0,
-  },
-]
-
 function ObjectList({
   title,
   icon,
@@ -50,6 +35,13 @@ function ObjectList({
               </div>
               <p className="mt-xs text-xs text-ink-muted">{item.id} · {item.category} · {item.location}</p>
               <p className="mt-sm line-clamp-2 text-xs leading-relaxed text-ink-soft">{item.description}</p>
+              {item.photos?.length ? (
+                <div className="mt-md grid grid-cols-5 gap-xs">
+                  {item.photos.slice(0, 5).map((photo, index) => (
+                    <img key={`${item.id}-admin-photo-${index}`} src={photo} alt={`${item.title} reference ${index + 1}`} className="aspect-square rounded-neo object-cover shadow-carve-sm" />
+                  ))}
+                </div>
+              ) : null}
             </div>
           ))}
         </div>
@@ -59,7 +51,7 @@ function ObjectList({
 }
 
 export default function AdminDashboard({ items = [], claims = [] }: { items?: Item[]; claims?: Claim[] }) {
-  const itemList = items.length ? items : FALLBACK_ITEMS
+  const itemList = items
   const claimedItemIds = new Set(claims.map((claim) => claim.itemId))
   const claimedItems = itemList.filter((item) => claimedItemIds.has(item.id) || item.status === 'closed' || item.status === 'in_review')
 

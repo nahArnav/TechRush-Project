@@ -2,7 +2,7 @@ import { lazy, Suspense, useEffect, useState, Component, type ReactNode } from '
 import { trackActivity } from './trackActivity'
 import { Home, Map, PlusCircle, User } from 'lucide-react'
 import { ThemeProvider, ToastProvider, useToast } from './neo'
-import { type Claim, type Item, type Role } from './types'
+import { type Claim, type Item, type Notification, type Role } from './types'
 import type { ReportPrefill } from './views/ReportItemModal'
 import LandingPage from './views/LandingPage'
 import LoginPage from './views/LoginPage'
@@ -18,7 +18,7 @@ import SafeChatPanel from './views/SafeChatPanel'
 import CampusMapModal from './views/CampusMapModal'
 import LiquidBlobs from './views/LiquidBlobs'
 import GlassDock, { type DockItem } from './views/GlassDock'
-import { fetchItems, fetchClaims } from './api'
+import { fetchItems, fetchClaims, fetchUserActivity } from './api'
 
 const AdminDashboard = lazy(() => import('./views/AdminDashboard'))
 
@@ -76,28 +76,49 @@ function AppInner() {
   const [loginRole, setLoginRole] = useState<Role | null>(null)
   const [signedIn, setSignedIn] = useState(false)
   const [userId, setUserId] = useState('')
-  const [userDisplayId, setUserDisplayId] = useState('')
   const [authRole, setAuthRole] = useState<Role>('student')
   const [role, setRole] = useState<Role>('student')
   const [supportOpen, setSupportOpen] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
   const [items, setItems] = useState<Item[]>([])
   const [claims, setClaims] = useState<Claim[]>([])
+  const [ownReportIds, setOwnReportIds] = useState<Set<string>>(new Set())
+  const [notifications, setNotifications] = useState<Notification[]>([])
   const [reportOpen, setReportOpen] = useState(false)
   const [reportPrefill, setReportPrefill] = useState<ReportPrefill | null>(null)
   const [claimItem, setClaimItem] = useState<Item | null>(null)
   const [chatItem, setChatItem] = useState<Item | null>(null)
   const [mapOpen, setMapOpen] = useState(false)
 
-  // Load real items and claims from backend MongoDB
   const loadBackendData = async () => {
     try {
-      const [liveItems, liveClaims] = await Promise.all([
+      const [liveItems, liveClaims, activity] = await Promise.all([
         fetchItems(),
         fetchClaims(),
+        fetchUserActivity(),
       ])
       setItems(liveItems || [])
       setClaims(liveClaims || [])
+      const reports = new Set<string>()
+      activity.forEach((entry: any) => {
+        if (entry.action === 'report_submitted' && entry.item_id) reports.add(entry.item_id)
+      })
+      setOwnReportIds(reports)
+      const realNotifications: Notification[] = []
+      activity.slice(0, 20).forEach((entry: any) => {
+        const item = liveItems.find((i) => i.id === entry.item_id)
+        if (entry.action === 'report_submitted' && item) {
+          realNotifications.push({ title: 'Report submitted', body: `${item.title} is now listed as ${item.type}.` })
+        }
+        if (entry.action === 'claim_submitted' && item) {
+          realNotifications.push({ title: 'Claim submitted', body: `${item.title} is under review.` })
+        }
+        if (entry.action === 'save_search') {
+          const query = entry.metadata?.query
+          realNotifications.push({ title: 'Search saved', body: query ? `Alerts are active for "${query}".` : 'Alerts are active for new matches.' })
+        }
+      })
+      setNotifications(realNotifications.slice(0, 6))
     } catch (err) {
       console.error('Failed to load data from backend:', err)
     }
@@ -106,14 +127,12 @@ function AppInner() {
   useEffect(() => {
     const savedToken = localStorage.getItem('auth_token')
     const savedEmail = localStorage.getItem('user_email')
-    const savedUserId = localStorage.getItem('user_id')
     const savedRole = localStorage.getItem('user_role') as Role | null
     if (savedToken && savedEmail) {
       const userRole = savedRole || 'student'
       setAuthRole(userRole)
       setRole(userRole)
-      setUserId(savedUserId || savedEmail)
-      setUserDisplayId(savedEmail || savedUserId || '')
+      setUserId(savedEmail)
       setSignedIn(true)
     }
   }, [])
@@ -158,11 +177,9 @@ function AppInner() {
           onBack={() => setLoginRole(null)}
           onNavigate={setPublicRoute}
           onSignIn={(r, id) => {
-            const savedEmail = localStorage.getItem('user_email')
             setAuthRole(r)
             setRole(r)
             setUserId(id)
-            setUserDisplayId(savedEmail || id)
             setSignedIn(true)
             trackActivity('login', undefined, { role: r })
           }}
@@ -220,7 +237,6 @@ function AppInner() {
             role={role}
             authRole={authRole}
             userId={userId}
-            userDisplayId={userDisplayId}
             onProfile={() => {
               setSupportOpen(false)
               setProfileOpen((p) => !p)
@@ -234,29 +250,25 @@ function AppInner() {
               trackActivity('logout')
               localStorage.removeItem('auth_token')
               localStorage.removeItem('user_email')
-              localStorage.removeItem('user_id')
               localStorage.removeItem('user_role')
               setSignedIn(false)
               setLoginRole(null)
               setUserId('')
-              setUserDisplayId('')
               setSupportOpen(false)
               setProfileOpen(false)
               setPublicRoute('home')
+              setOwnReportIds(new Set())
+              setNotifications([])
             }}
+            notifications={notifications}
           />
 
           {profileOpen ? (
-            <ProfilePage
-              userId={userId}
-              userDisplayId={userDisplayId}
-              role={role}
-              onBack={() => setProfileOpen(false)}
-            />
+            <ProfilePage userId={userId} role={role} onBack={() => setProfileOpen(false)} />
           ) : supportOpen ? (
             <SupportPage />
           ) : role === 'student' ? (
-            <StudentDashboard items={items} claims={claims} onClaim={setClaimItem} onChat={setChatItem} currentUserId={userId} />
+            <StudentDashboard items={items} claims={claims} ownReportIds={ownReportIds} onClaim={setClaimItem} onChat={setChatItem} />
           ) : role === 'staff' ? (
             <StaffDashboard
               onDraftReport={(prefill) => {
@@ -299,7 +311,9 @@ function AppInner() {
             setReportPrefill(prefill)
             setReportOpen(true)
           }}
-          onSelectItem={(item) => setClaimItem(item)}
+          onSelectItem={(item) => {
+            if (!ownReportIds.has(item.id)) setClaimItem(item)
+          }}
         />
       </div>
     </ErrorBoundary>

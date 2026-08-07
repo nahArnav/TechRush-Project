@@ -1,78 +1,54 @@
 import { useEffect, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'framer-motion'
-import {
-  BadgeCheck,
-  CheckCheck,
-  ImagePlus,
-  MapPin,
-  Paperclip,
-  SendHorizonal,
-  ShieldAlert,
-  ShieldCheck,
-  UserRound,
-  X,
-} from 'lucide-react'
+import { BadgeCheck, CheckCheck, ImagePlus, MapPin, SendHorizonal, ShieldAlert, ShieldCheck, UserRound, X } from 'lucide-react'
+import { fetchMessages, sendMessage, type ChatMessage } from '../api'
 import { NeoButton, NeoIconButton, SPRING, Tooltip } from '../neo'
 import { emojiFor, type Item } from '../types'
 import HandoverModal from './HandoverModal'
 import { trackActivity } from '../trackActivity'
 
-type Msg = { from: 'them' | 'me'; text: string; time: string; image?: boolean }
-
-const now = () => new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
-
-const QUICK_REPLIES = [
-  'Can we meet at the library desk?',
-  'I can share one more identifying detail.',
-  'Please use a public handover zone.',
-]
+const timeLabel = (iso: string) =>
+  new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
 
 export default function SafeChatPanel({ item, onClose }: { item: Item | null; onClose: () => void }) {
-  const [messages, setMessages] = useState<Msg[]>([])
+  const [messages, setMessages] = useState<ChatMessage[]>([])
   const [draft, setDraft] = useState('')
   const [bannerOpen, setBannerOpen] = useState(true)
   const [handover, setHandover] = useState<Item | null>(null)
+  const [sending, setSending] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
+    let active = true
     if (!item) return
-    setBannerOpen(true)
-    setDraft('')
-    setMessages([
-      {
-        from: 'them',
-        text: item.type === 'found'
-          ? 'Hi, I have this item safely with me. Let us confirm details before the handover.'
-          : 'Hi, I think this may be yours. Please share a detail only the owner would know.',
-        time: now(),
-      },
-    ])
+    setMessages([])
+    fetchMessages(item.id).then((loaded) => {
+      if (active) setMessages(loaded)
+    })
+    return () => {
+      active = false
+    }
   }, [item])
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
   }, [messages])
 
-  const send = (text: string, image = false) => {
+  const send = async (text: string) => {
     const body = text.trim()
-    if (!body && !image) return
-    setMessages((m) => [...m, { from: 'me', text: image ? 'Photo attached for verification.' : body, time: now(), image }])
-    setDraft('')
-    trackActivity(image ? 'photo_attached' : 'chat_message_sent', item?.id, image ? undefined : { textLength: body.length })
-    window.setTimeout(() => {
-      setMessages((m) => [
-        ...m,
-        {
-          from: 'them',
-          text: 'Thanks. Once both sides are comfortable, we can confirm a monitored handover zone.',
-          time: now(),
-        },
-      ])
-    }, 700)
+    if (!body || !item || sending) return
+    setSending(true)
+    try {
+      const saved = await sendMessage(item.id, body)
+      setMessages((current) => [...current, saved])
+      setDraft('')
+      trackActivity('chat_message_sent', item.id, { textLength: body.length })
+    } finally {
+      setSending(false)
+    }
   }
 
-  return createPortal(
+  return (
     <>
       <AnimatePresence>
         {item ? (
@@ -85,21 +61,21 @@ export default function SafeChatPanel({ item, onClose }: { item: Item | null; on
               onClick={onClose}
             />
             <motion.aside
-              initial={{ x: '100%' }}
-              animate={{ x: 0 }}
-              exit={{ x: '100%' }}
+              initial={{ opacity: 0, scale: 0.96, y: 18 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.96, y: 18 }}
               transition={SPRING}
-              className="glass fixed right-0 top-0 z-[1000] flex h-[100dvh] w-[min(100vw,42rem)] max-w-none flex-col overflow-hidden shadow-float"
+              className="glass fixed inset-0 z-50 m-auto flex h-[86dvh] w-[min(94vw,880px)] flex-col overflow-hidden rounded-neo-lg shadow-float"
             >
-              <header className="flex shrink-0 flex-col gap-lg border-b border-line-soft px-xl py-lg">
+              <header className="flex shrink-0 flex-col gap-md border-b border-line-soft px-xl py-lg">
                 <div className="flex items-start justify-between gap-md">
                   <div className="flex min-w-0 items-center gap-md">
-                    <span className="flex size-12 shrink-0 items-center justify-center rounded-neo bg-plate text-xl shadow-extrude-sm">
+                    <span className="flex size-11 shrink-0 items-center justify-center rounded-neo bg-plate text-xl shadow-extrude-sm">
                       {emojiFor(item.category)}
                     </span>
                     <div className="min-w-0">
                       <p className="truncate text-sm font-black tracking-tight text-ink">{item.title}</p>
-                      <p className="flex items-center gap-sm text-[11px] text-ink-muted">
+                      <p className="flex min-w-0 items-center gap-sm text-[11px] text-ink-muted">
                         <span
                           className={`rounded-neo-full border px-md py-px text-[9px] font-black uppercase tracking-widest ${
                             item.type === 'found'
@@ -107,7 +83,7 @@ export default function SafeChatPanel({ item, onClose }: { item: Item | null; on
                               : 'border-status-lost/50 text-status-lost'
                           }`}
                         >
-                          {item.type}
+                          {item.type === 'found' ? 'Found' : 'Lost'}
                         </span>
                         <span className="flex min-w-0 items-center gap-xs truncate">
                           <MapPin size={10} /> {item.location}
@@ -117,23 +93,17 @@ export default function SafeChatPanel({ item, onClose }: { item: Item | null; on
                   </div>
                   <NeoIconButton size="sm" icon={<X size={16} />} onClick={onClose} aria-label="Close chat" />
                 </div>
-
-                <div className="grid gap-md sm:grid-cols-[1fr_auto] sm:items-center">
-                  <div className="flex min-w-0 items-center gap-md rounded-neo bg-plate p-md shadow-carve-sm">
-                    <span className="flex size-10 shrink-0 items-center justify-center rounded-neo-full bg-ink text-on-ink">
-                      <UserRound size={17} />
-                    </span>
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-black text-ink">Finder #4821</p>
-                      <p className="flex items-center gap-xs text-[11px] font-bold text-ink-muted">
-                        <BadgeCheck size={12} /> Verified student
-                      </p>
-                    </div>
-                  </div>
+                <div className="flex flex-wrap items-center gap-sm">
+                  <span className="flex items-center gap-xs rounded-neo-full bg-plate px-md py-px text-[10px] font-bold text-ink-muted shadow-extrude-sm">
+                    <UserRound size={11} /> Secure alias
+                  </span>
+                  <span className="flex items-center gap-px rounded-neo-full bg-ink px-md py-px text-[9px] font-bold uppercase tracking-widest text-on-ink">
+                    <BadgeCheck size={11} /> Verified account
+                  </span>
                   <NeoButton
                     size="sm"
                     variant="dark"
-                    className="w-full sm:w-auto"
+                    className="ml-auto"
                     iconStart={<ShieldCheck size={14} />}
                     onClick={() => {
                       setHandover(item)
@@ -156,8 +126,8 @@ export default function SafeChatPanel({ item, onClose }: { item: Item | null; on
                   >
                     <div className="mt-lg flex items-start gap-md rounded-neo bg-ink p-lg shadow-float">
                       <ShieldAlert size={16} className="mt-px shrink-0 text-on-ink" />
-                      <p className="flex-1 text-[11px] leading-relaxed text-on-ink-muted">
-                        <span className="font-bold text-on-ink">Stay safe.</span> Keep personal details private and meet only at monitored campus desks.
+                      <p className="min-w-0 flex-1 text-[11px] leading-relaxed text-on-ink-muted">
+                        <span className="font-bold text-on-ink">Stay safe.</span> Meet in public campus areas for item exchanges.
                       </p>
                       <button
                         onClick={() => setBannerOpen(false)}
@@ -172,50 +142,31 @@ export default function SafeChatPanel({ item, onClose }: { item: Item | null; on
               </AnimatePresence>
 
               <div ref={scrollRef} className="no-scrollbar flex flex-1 flex-col gap-lg overflow-y-auto p-xl">
-                <div className="rounded-neo bg-plate p-lg shadow-carve-sm">
-                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-ink-muted">Item context</p>
-                  <p className="mt-xs text-sm font-bold text-ink">{item.description}</p>
-                </div>
-
-                {messages.map((m, i) => {
-                  const mine = m.from === 'me'
+                {messages.length ? messages.map((message) => {
+                  const mine = message.sender === 'me'
                   return (
-                    <div key={i} className={`flex flex-col ${mine ? 'items-end' : 'items-start'}`}>
+                    <div key={message.id} className={`flex flex-col ${mine ? 'items-end' : 'items-start'}`}>
                       <div
-                        className={`max-w-[82%] rounded-neo border px-lg py-md text-sm shadow-extrude-sm backdrop-blur-xl ${
+                        className={`max-w-[78%] rounded-neo border px-lg py-md text-sm shadow-extrude-sm backdrop-blur-xl ${
                           mine ? 'border-accent-border bg-accent-soft text-ink' : 'border-line-soft bg-plate text-ink'
                         }`}
                       >
-                        {m.image ? (
-                          <span className="flex items-center gap-sm text-xs font-medium">
-                            <ImagePlus size={14} /> {m.text}
-                          </span>
-                        ) : (
-                          m.text
-                        )}
+                        {message.text}
                       </div>
                       <span className="mt-xs flex items-center gap-xs px-sm text-[10px] tabular-nums text-ink-muted">
-                        {m.time}
+                        {timeLabel(message.createdAt)}
                         {mine ? <CheckCheck size={12} className="text-accent" aria-label="Delivered" /> : null}
                       </span>
                     </div>
                   )
-                })}
+                }) : (
+                  <div className="flex flex-1 items-center justify-center text-center">
+                    <p className="max-w-sm text-sm text-ink-muted">No messages yet. Start the secure chat to arrange details without exposing personal contact info.</p>
+                  </div>
+                )}
               </div>
 
-              <div className="shrink-0 border-t border-line-soft p-xl">
-                <div className="mb-md flex gap-sm overflow-x-auto pb-xs">
-                  {QUICK_REPLIES.map((reply) => (
-                    <button
-                      key={reply}
-                      type="button"
-                      onClick={() => send(reply)}
-                      className="shrink-0 rounded-neo-full bg-plate px-lg py-sm text-[11px] font-bold text-ink shadow-extrude-sm"
-                    >
-                      {reply}
-                    </button>
-                  ))}
-                </div>
+              <footer className="shrink-0 border-t border-line-soft p-xl">
                 <form
                   onSubmit={(e) => {
                     e.preventDefault()
@@ -226,12 +177,12 @@ export default function SafeChatPanel({ item, onClose }: { item: Item | null; on
                   <Tooltip label="Attach a photo">
                     <NeoIconButton
                       type="button"
-                      icon={<Paperclip size={18} />}
-                      onClick={() => send('', true)}
+                      icon={<ImagePlus size={18} />}
+                      onClick={() => setDraft((current) => current || 'Photo reference shared for handover.')}
                       aria-label="Attach a photo"
                     />
                   </Tooltip>
-                  <span className="flex flex-1 items-center rounded-neo-full bg-plate px-xl shadow-carve">
+                  <span className="flex min-w-0 flex-1 items-center rounded-neo-full bg-plate px-xl shadow-carve">
                     <input
                       value={draft}
                       onChange={(e) => setDraft(e.target.value)}
@@ -243,18 +194,17 @@ export default function SafeChatPanel({ item, onClose }: { item: Item | null; on
                     type="submit"
                     icon={<SendHorizonal size={18} />}
                     aria-label="Send message"
-                    disabled={!draft.trim()}
-                    className={draft.trim() ? '' : 'opacity-40'}
+                    disabled={!draft.trim() || sending}
+                    className={draft.trim() && !sending ? '' : 'opacity-40'}
                   />
                 </form>
-              </div>
+              </footer>
             </motion.aside>
           </>
         ) : null}
       </AnimatePresence>
 
       <HandoverModal item={handover} onClose={() => setHandover(null)} />
-    </>,
-    document.body,
+    </>
   )
 }

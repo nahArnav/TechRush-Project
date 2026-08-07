@@ -72,10 +72,7 @@ class ItemCreate(BaseModel):
     brand: Optional[str] = Field(default=None, max_length=80)
     color: Optional[str] = Field(default=None, max_length=80)
     anonymous: bool = False
-    # Client context only. Ownership is always derived from the authenticated
-    # session on the server and never from these optional values.
-    reporter_id: Optional[str] = Field(default=None, max_length=80)
-    reporter_email: Optional[str] = Field(default=None, max_length=254)
+    photos: list[str] = Field(default_factory=list, max_length=8)
 
 
 class ItemOut(BaseModel):
@@ -91,22 +88,11 @@ class ItemOut(BaseModel):
     status: ItemStatus
     match_score: float = Field(ge=0, le=1)
     coordinates: Optional[CampusPoint] = None
-    # The authenticated user who created the report. Seeded legacy reports may
-    # not have an owner, so this remains optional for backwards compatibility.
-    user_id: Optional[str] = None
-    sighting_count: int = 0
-    sighted_by_user_ids: list[str] = Field(default_factory=list)
+    photos: list[str] = Field(default_factory=list)
 
 
 class ItemList(BaseModel):
     items: list[ItemOut]
-
-
-class ItemSightingOut(BaseModel):
-    item_id: str
-    sighting_count: int
-    sighted: bool
-    sighted_by_user_ids: list[str] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -304,6 +290,7 @@ class AIReportRequest(BaseModel):
     source: Literal["photo", "camera", "microphone", "text"]
     notes: Optional[str] = Field(default=None, max_length=1200)
     location: Optional[str] = Field(default=None, max_length=180)
+    photos: list[str] = Field(default_factory=list, max_length=8)
 
 
 class AIReportSuggestion(BaseModel):

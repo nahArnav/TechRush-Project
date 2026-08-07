@@ -10,22 +10,21 @@ function Lane({
   items,
   variant,
   claims,
+  ownReportIds,
   onClaim,
   onChat,
-  currentUserId,
   dark = false,
 }: {
   title: string
   items: Item[]
   variant?: 'default' | 'ai'
   claims: Claim[]
+  ownReportIds: Set<string>
   onClaim: (i: Item) => void
   onChat: (i: Item) => void
-  currentUserId?: string
   dark?: boolean
 }) {
   if (!items.length) return null
-
   return (
     <section className="flex flex-col gap-lg">
       <LaneTitle dark={dark}>{title}</LaneTitle>
@@ -36,9 +35,9 @@ function Lane({
             item={item}
             variant={variant}
             claim={claims.find((c) => c.itemId === item.id)}
+            isOwnReport={ownReportIds.has(item.id)}
             onClaim={onClaim}
             onChat={onChat}
-            currentUserId={currentUserId}
           />
         ))}
       </div>
@@ -49,15 +48,15 @@ function Lane({
 export default function StudentDashboard({
   items = [],
   claims = [],
+  ownReportIds = new Set<string>(),
   onClaim,
   onChat,
-  currentUserId,
 }: {
   items?: Item[]
   claims?: Claim[]
+  ownReportIds?: Set<string>
   onClaim: (item: Item) => void
   onChat: (item: Item) => void
-  currentUserId?: string
 }) {
   const [query, setQuery] = useState('')
   const { push } = useToast()
@@ -78,7 +77,7 @@ export default function StudentDashboard({
     trackActivity('save_search', undefined, { query })
     push({
       title: 'Search saved',
-      description: query ? `We will alert you about "${query}".` : 'We will alert you about new matches.',
+      description: query ? `We’ll alert you about “${query}”.` : 'We’ll alert you about new matches.',
     })
   }
 
@@ -87,7 +86,7 @@ export default function StudentDashboard({
       <div className="mx-auto flex max-w-6xl flex-col gap-3xl">
         <div className="flex flex-col gap-lg">
           <h1 className="text-3xl font-light tracking-tight text-ink">
-            Lost it? <span className="font-black">We will find it.</span>
+            Lost it? <span className="font-black">We’ll find it.</span>
           </h1>
           <div className="flex flex-wrap items-center gap-md">
             <NeoInput
@@ -109,16 +108,16 @@ export default function StudentDashboard({
 
         {aiMatches.length ? (
           <GlassPanel className="p-2xl shadow-float">
-            <Lane title="AI Matches" items={aiMatches} variant="ai" claims={claims} onClaim={onClaim} onChat={onChat} currentUserId={currentUserId} />
+            <Lane title="AI Matches" items={aiMatches} variant="ai" claims={claims} ownReportIds={ownReportIds} onClaim={onClaim} onChat={onChat} />
           </GlassPanel>
         ) : null}
 
-        <Lane title="Recently found on campus" items={found} claims={claims} onClaim={onClaim} onChat={onChat} currentUserId={currentUserId} />
-        <Lane title="Reported lost" items={lost} claims={claims} onClaim={onClaim} onChat={onChat} currentUserId={currentUserId} />
+        <Lane title="Recently found on campus" items={found} claims={claims} ownReportIds={ownReportIds} onClaim={onClaim} onChat={onChat} />
+        <Lane title="Reported lost" items={lost} claims={claims} ownReportIds={ownReportIds} onClaim={onClaim} onChat={onChat} />
 
         {!results.length ? (
           <GlassPanel className="p-3xl text-center shadow-extrude">
-            <p className="text-lg font-light text-ink">Nothing matches "{query}".</p>
+            <p className="text-lg font-light text-ink">Nothing matches “{query}”.</p>
             <p className="mt-xs text-sm text-ink-muted">Try fewer words, or report the item so we watch for it.</p>
           </GlassPanel>
         ) : null}

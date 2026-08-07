@@ -1,5 +1,3 @@
-import data from './data/mockData.json'
-
 export type ItemType = 'lost' | 'found'
 export type ItemStatus = 'open' | 'in_review' | 'secured' | 'escalated' | 'closed'
 
@@ -13,9 +11,7 @@ export type Item = {
   date: string
   status: ItemStatus
   matchScore: number
-  userId?: string
-  sightingCount: number
-  sightedByUserIds?: string[]
+  photos?: string[]
 }
 
 export type ReportSuggestion = {
@@ -28,13 +24,22 @@ export type ReportSuggestion = {
 
 export type CategoryStyle = { emoji: string; pill: string }
 
-const raw = data as unknown as {
-  categories?: Record<string, CategoryStyle>
-  items?: Item[]
-}
+export type Notification = { title: string; body: string }
 
-export const ITEMS: Item[] = []
-export const CATEGORIES: Record<string, CategoryStyle> = raw.categories ?? {}
+export const CATEGORIES: Record<string, CategoryStyle> = {
+  Electronics: { emoji: '💻', pill: '' },
+  Phone: { emoji: '📱', pill: '' },
+  Keys: { emoji: '🔑', pill: '' },
+  Wallet: { emoji: '👛', pill: '' },
+  Bags: { emoji: '🎒', pill: '' },
+  Clothing: { emoji: '🧥', pill: '' },
+  Books: { emoji: '📚', pill: '' },
+  Jewellery: { emoji: '💍', pill: '' },
+  'Government ID': { emoji: '🪪', pill: '' },
+  'ID Card': { emoji: '🪪', pill: '' },
+  Medicine: { emoji: '💊', pill: '' },
+  Other: { emoji: '🎁', pill: '' },
+}
 export const CATEGORY_NAMES = [
   'Electronics',
   'Phone',
@@ -54,16 +59,12 @@ export const categoryStyle = (name: string): CategoryStyle => CATEGORIES[name] ?
 
 export const emojiFor = (name: string) => categoryStyle(name).emoji
 
-/* ── Roles ─────────────────────────────────────────────────────────────────── */
-
 export type Role = 'student' | 'staff' | 'admin'
 export const ROLE_LABELS: Record<Role, string> = {
   student: 'Student',
   staff: 'Helping Staff',
   admin: 'Admin',
 }
-
-/* ── Status → Astra badge tone ─────────────────────────────────────────────── */
 
 export const STATUS_LABELS: Record<ItemStatus, string> = {
   open: 'Open',
@@ -82,8 +83,6 @@ export const STATUS_TONE: Record<ItemStatus, BadgeTone> = {
   closed: 'neutral',
 }
 
-/* ── Claim workflow (Feature 8) ────────────────────────────────────────────── */
-
 export type ClaimStage = 'submitted' | 'review' | 'approved'
 export const CLAIM_STAGES: { id: ClaimStage; label: string }[] = [
   { id: 'submitted', label: 'Submitted' },
@@ -99,12 +98,9 @@ export type Claim = {
   createdAt: string
 }
 
-// Sensitive categories that must be handed to security (Feature 21).
 export const SENSITIVE_CATEGORIES = ['Government ID', 'Medicine', 'ID Card']
 
-// Categories whose descriptions carry owner-only detail worth blurring (Feature 3).
 export const isSensitive = (category: string) => SENSITIVE_CATEGORIES.includes(category)
 
-// Campus ID cards get the automatic private-match treatment (Feature 22).
 export const ID_CATEGORIES = ['ID Card', 'Government ID']
 export const isCampusId = (category: string) => ID_CATEGORIES.includes(category)

@@ -1,12 +1,12 @@
-import { useEffect, useState, type ReactNode } from 'react'
-import { AlertTriangle, Camera, Check, Sparkles, UploadCloud } from 'lucide-react'
-import { NeoButton, NeoInput, NeoModal, NeoPill, NeoSelect, NeoToggle, useToast } from '../neo'
+import { useEffect, useRef, useState } from 'react'
+import { AlertTriangle, Camera, Check, ImagePlus, Sparkles, UploadCloud, X } from 'lucide-react'
+import { NeoButton, NeoInput, NeoModal, NeoPill, NeoSelect, NeoToggle } from '../neo'
 import { CATEGORY_NAMES, isSensitive } from '../types'
 import { trackActivity } from '../trackActivity'
 import { createItem, suggestReportDetails } from '../api'
 
 const CATEGORY_OPTIONS = [
-  { value: '', label: 'Select a category...' },
+  { value: '', label: 'Select a category…' },
   ...CATEGORY_NAMES.map((c) => ({ value: c, label: c })),
   { value: 'ID Card', label: 'ID Card' },
 ]
@@ -28,11 +28,12 @@ export type ReportPrefill = {
   description?: string
   brand?: string
   color?: string
+  photos?: string[]
 }
 
 type Warning = null | 'sensitive' | 'duplicate'
 
-function Field({ label, children }: { label: string; children: ReactNode }) {
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="flex flex-col gap-sm">
       <span className="text-[10px] font-black uppercase tracking-[0.2em] text-ink-muted">{label}</span>
@@ -50,7 +51,6 @@ export default function ReportItemModal({
   prefill?: ReportPrefill | null
   onClose: () => void
 }) {
-  const { push } = useToast()
   const [analyzed, setAnalyzed] = useState(false)
   const [category, setCategory] = useState('')
   const [title, setTitle] = useState('')
@@ -67,6 +67,8 @@ export default function ReportItemModal({
   const [reportType, setReportType] = useState<'lost' | 'found'>('lost')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
+  const [photos, setPhotos] = useState<string[]>([])
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const isDevice = category === 'Electronics' || category === 'Phone'
   const sensitive = isSensitive(category)
@@ -82,9 +84,7 @@ export default function ReportItemModal({
     if (prefill.description) setDescription(prefill.description)
     if (prefill.brand) setBrand(prefill.brand)
     if (prefill.color) setColor(prefill.color)
-    if (prefill.category || prefill.title || prefill.description || prefill.brand || prefill.color) {
-      setAnalyzed(true)
-    }
+    if (prefill.photos?.length) setPhotos(prefill.photos)
   }, [isOpen, prefill])
 
   const reset = () => {
@@ -104,6 +104,7 @@ export default function ReportItemModal({
     setSubmitted(false)
     setSubmitting(false)
     setError('')
+    setPhotos([])
   }
 
   const close = () => {
@@ -111,14 +112,32 @@ export default function ReportItemModal({
     onClose()
   }
 
+  const addFiles = async (files: FileList | null) => {
+    if (!files?.length) return
+    const selected = Array.from(files).slice(0, 8 - photos.length)
+    const dataUrls = await Promise.all(
+      selected.map(
+        (file) =>
+          new Promise<string>((resolve, reject) => {
+            const reader = new FileReader()
+            reader.onload = () => resolve(String(reader.result || ''))
+            reader.onerror = () => reject(reader.error)
+            reader.readAsDataURL(file)
+          }),
+      ),
+    )
+    setPhotos((current) => [...current, ...dataUrls].slice(0, 8))
+  }
+
   const analyze = async () => {
     setSubmitting(true)
     setError('')
     try {
       const suggestion = await suggestReportDetails({
-        source: 'photo',
-        notes: [title, description, brand, color].filter(Boolean).join('. '),
+        source: photos.length ? 'photo' : 'text',
+        notes: [title, description, brand, color, photos.length ? `${photos.length} uploaded photo(s)` : ''].filter(Boolean).join('. '),
         location: building || spot || undefined,
+        photos,
       })
       setAnalyzed(true)
       setCategory(suggestion.category || 'Other')
@@ -139,7 +158,8 @@ export default function ReportItemModal({
     setError('')
     try {
       const today = new Date().toISOString().split('T')[0]
-      const locationStr = building ? `${building}, ${spot || floor}` : spot || 'Campus Quad'
+      const locationStr = building ? `${building}, ${spot || floor}` : (spot || 'Campus Quad')
+      
       const created = await createItem({
         type: reportType,
         category: category || 'Other',
@@ -150,15 +170,13 @@ export default function ReportItemModal({
         brand: brand || undefined,
         color: color || undefined,
         anonymous,
+        photos,
       })
 
       trackActivity('report_submitted', created.id, { category, title, type: reportType, building, floor })
       setSubmitted(true)
     } catch (err: any) {
-      const message = err?.message || 'Failed to submit report. Please try again.'
-      console.error('Report submission failed:', err)
-      setError(message)
-      push({ title: 'Report could not be submitted', description: message })
+      setError(err?.message || 'Failed to submit report. Please try again.')
     } finally {
       setSubmitting(false)
     }
@@ -167,8 +185,7 @@ export default function ReportItemModal({
   const submit = () => {
     if (sensitive) {
       trackActivity('report_submitted', undefined, { category, title, status: 'warning_sensitive' })
-      setWarning('sensitive')
-      return
+      return setWarning('sensitive')
     }
     handleFinalSubmit()
   }
@@ -180,7 +197,7 @@ export default function ReportItemModal({
         onClose={close}
         size="full"
         icon={<Camera size={18} />}
-        title={prefill ? `Report ${prefill.type} item - ${prefill.building}` : 'Report an item'}
+        title={prefill ? `Report ${prefill.type} item — ${prefill.building}` : 'Report an item'}
         subtitle="Add details manually or let AI draft the report"
         footer={
           <>
@@ -188,7 +205,7 @@ export default function ReportItemModal({
               Cancel
             </NeoButton>
             <NeoButton variant="dark" disabled={!category || !title || submitting} onClick={submit}>
-              {submitting ? 'Submitting...' : 'Submit report'}
+              {submitting ? 'Submitting…' : 'Submit report'}
             </NeoButton>
           </>
         }
@@ -196,7 +213,7 @@ export default function ReportItemModal({
         <div className="mx-auto grid w-full max-w-6xl grid-cols-1 gap-2xl lg:grid-cols-[minmax(280px,0.9fr)_minmax(420px,1.4fr)]">
           {error ? (
             <div className="rounded-neo border border-line bg-plate px-lg py-md text-xs font-medium text-ink shadow-carve-sm lg:col-span-2">
-              {error}
+              ⚠️ {error}
             </div>
           ) : null}
 
@@ -215,22 +232,64 @@ export default function ReportItemModal({
               type="button"
               onClick={analyze}
               disabled={submitting}
-              className={`flex min-h-72 w-full cursor-pointer flex-col items-center justify-center gap-lg rounded-neo bg-plate px-2xl text-center disabled:opacity-60 ${analyzed ? 'shadow-carve' : 'shadow-extrude'}`}
+              className={`flex min-h-72 w-full min-w-0 cursor-pointer flex-col items-center justify-center gap-lg rounded-neo bg-plate px-2xl text-center disabled:opacity-60 ${analyzed ? 'shadow-carve' : 'shadow-extrude'}`}
             >
               {analyzed ? (
                 <>
                   <Sparkles size={34} className="text-ink" />
-                  <span className="text-sm font-black uppercase tracking-widest text-ink">AI drafted this report</span>
-                  <span className="max-w-xs text-xs leading-relaxed text-ink-muted">Tap again to refresh the draft from the current text.</span>
+                  <span className="w-full text-sm font-black uppercase tracking-widest text-ink">AI drafted this report</span>
+                  <span className="w-full max-w-xs text-xs leading-relaxed text-ink-muted">Tap again to refresh the draft from the current text and photos.</span>
                 </>
               ) : (
                 <>
                   <UploadCloud size={38} className="text-ink-muted" />
-                  <span className="text-sm font-black uppercase tracking-widest text-ink">Analyze with AI</span>
-                  <span className="max-w-xs text-xs leading-relaxed text-ink-muted">Use the current notes, location, or staff capture to fill category, title, and description.</span>
+                  <span className="w-full text-sm font-black uppercase tracking-widest text-ink">Analyze with AI</span>
+                  <span className="w-full max-w-xs text-xs leading-relaxed text-ink-muted">Use uploaded photos, current notes, location, or staff capture to fill category, title, and description.</span>
                 </>
               )}
             </button>
+
+            <div className="flex flex-col gap-md rounded-neo bg-plate p-lg shadow-carve-sm">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                className="hidden"
+                onChange={(event) => {
+                  addFiles(event.target.files)
+                  event.currentTarget.value = ''
+                }}
+              />
+              <NeoButton
+                type="button"
+                variant="raised"
+                iconStart={<ImagePlus size={16} />}
+                className="w-full"
+                onClick={() => fileInputRef.current?.click()}
+              >
+                Upload photo(s)
+              </NeoButton>
+              {photos.length ? (
+                <div className="grid grid-cols-3 gap-sm">
+                  {photos.map((photo, index) => (
+                    <div key={`${photo.slice(0, 24)}-${index}`} className="group relative aspect-square overflow-hidden rounded-neo bg-ink/10">
+                      <img src={photo} alt={`Report upload ${index + 1}`} className="size-full object-cover" />
+                      <button
+                        type="button"
+                        onClick={() => setPhotos((current) => current.filter((_, i) => i !== index))}
+                        className="absolute right-1 top-1 flex size-7 items-center justify-center rounded-neo-full bg-black/70 text-white opacity-0 transition-opacity group-hover:opacity-100"
+                        aria-label="Remove photo"
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-center text-xs leading-relaxed text-ink-muted">Photos are optional, but they help AI draft a cleaner report and will appear with the report.</p>
+              )}
+            </div>
           </div>
 
           <div className="flex flex-col gap-xl">
@@ -252,7 +311,7 @@ export default function ReportItemModal({
               <Field label="Exact location">
                 <NeoInput value={spot} onChange={setSpot} placeholder="e.g. near the printers" />
               </Field>
-              <Field label="Date and time">
+              <Field label="Date & time">
                 <NeoInput type="datetime-local" value={when} onChange={setWhen} />
               </Field>
 
@@ -260,7 +319,7 @@ export default function ReportItemModal({
                 <NeoInput value={brand} onChange={setBrand} placeholder="e.g. Apple" />
               </Field>
               {isDevice ? (
-                <Field label="Device color">
+                <Field label="Device colour">
                   <NeoInput value={color} onChange={setColor} placeholder="e.g. Space grey" />
                 </Field>
               ) : null}
@@ -270,7 +329,7 @@ export default function ReportItemModal({
               <textarea
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
-                placeholder="Distinguishing marks, stickers, contents - anything that helps identify it."
+                placeholder="Distinguishing marks, stickers, contents — anything that helps identify it."
                 className="min-h-36 w-full resize-y rounded-neo bg-plate px-lg py-md text-sm text-ink shadow-carve placeholder:text-ink-muted focus:outline-none"
               />
             </Field>
@@ -319,7 +378,7 @@ export default function ReportItemModal({
       </NeoModal>
 
       <NeoModal isOpen={submitted} onClose={close} icon={<Check size={26} />} title="Report submitted">
-        <p className="text-center text-sm">We will alert you the moment a match appears.</p>
+        <p className="mx-auto w-full max-w-sm text-center text-sm">We’ll alert you the moment a match appears.</p>
         <div className="mt-2xl flex justify-center">
           <NeoButton onClick={close}>Done</NeoButton>
         </div>
